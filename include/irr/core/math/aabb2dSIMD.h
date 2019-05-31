@@ -8,68 +8,72 @@
 #include <iostream>
 
 #define SIGN_FLIP_MASK_XY	core::vector3du32_SIMD(0x80000000, 0x80000000, 0x00000000, 0x00000000)
-#define SIGN_FLIP_MASK_XYZW core::vector3du32_SIMD(0x80000000, 0x80000000, 0x80000000, 0x80000000)
-
 
 namespace irr { namespace core {
+
 
 class aabb2dSIMDf
 {
 public:
 	inline aabb2dSIMDf()
-		: box( FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX ) {};
+		: internalBoxRepresentation(-FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX) {};
 
-	inline aabb2dSIMDf(const core::vectorSIMDf& _box)
-		: box(_box ^ SIGN_FLIP_MASK_XY) {};
+	inline explicit aabb2dSIMDf(const core::vectorSIMDf& _box)
+		: internalBoxRepresentation(_box^ SIGN_FLIP_MASK_XY) {};
 
-	inline void addBox(const aabb2dSIMDf& _box)		
-	{ 
-		box = core::max_(box, _box.getBounds()); 
+	inline void addBox(const aabb2dSIMDf& _box)
+	{
+		internalBoxRepresentation = core::max_(internalBoxRepresentation, _box.getBounds());
 	}
 
-	inline void addPoint(const core::vectorSIMDf& point)	
+	inline void addPoint(const core::vectorSIMDf& point)
 	{
-		addBox(point); 
+		addBox(aabb2dSIMDf(point));
+	}
+
+	inline core::vectorSIMDf getMinEdge() const
+	{
+		core::vectorSIMDf minEdge = getBounds();
+		minEdge.makeSafe2D();
+		return minEdge;
+	}
+
+	inline core::vectorSIMDf getMaxEdge() const
+	{
+		core::vectorSIMDf maxEdge = internalBoxRepresentation.zwzw();
+		maxEdge.makeSafe2D();
+		return maxEdge;
 	}
 
 	inline core::vectorSIMDf getBounds() const
 	{
-		return box ^ SIGN_FLIP_MASK_XY;
+		return internalBoxRepresentation ^ SIGN_FLIP_MASK_XY;
 	}
-
 
 	//! Resets the bounding box to a one-point box.
 	/** \param x X coord of the point.
 	\param y Y coord of the point. */
-	inline void reset(float x, float y)
+	inline void reset(const core::vectorSIMDf& point)
 	{
-		box = core::vectorSIMDf(-x, -y, x, y);
+		internalBoxRepresentation = point.xyxy();
+		internalBoxRepresentation ^= SIGN_FLIP_MASK_XY;
 	}
-
-	//! Resets the bounding box.
-	/** \param initValue New box to set this one to. */
-	inline void reset(const aabb2dSIMDf& initValue)
-	{
-		box = initValue.box;
-	}
-
-	//! Resets the bounding box to a one-point box.
-	/** \param initValue New point. */
-	//void reset(const aabb2dSIMDf& initValue);
 
 	//! Get center of the bounding box
 	/** \return Center of the bounding box. */
 	inline core::vectorSIMDf getCenter() const
 	{
-		core::vectorSIMDf minToCenterVec = (box + box.zwzw()) * 0.5f;
-		return ((box ^ SIGN_FLIP_MASK_XY) + minToCenterVec);
+		return (internalBoxRepresentation.zwzw() - internalBoxRepresentation) * vectorSIMDf(0.5f, 0.5f, 0.f, 0.f);
 	}
+
 
 	//! Get extent of the box (maximal distance of two points in the box)
 	/** \return Extent of the bounding box. */
 	core::vectorSIMDf getExtent() const
 	{
-		return box.zwzw() + box;
+		core::vectorSIMDf extent = internalBoxRepresentation.zwzw() + internalBoxRepresentation;
+		extent.makeSafe2D();
+		return extent;
 	}
 
 	//! Check if the box is empty.
@@ -77,21 +81,19 @@ public:
 	\return True if box is empty, else false. */
 	bool isEmpty() const
 	{
-		core::vectorSIMDf extent = getExtent();
-			//epsilon?
-		return (extent.x == 0.0f) || (extent.y == 0.0f);
+		return ((internalBoxRepresentation ^ SIGN_FLIP_MASK_XY) == internalBoxRepresentation.zwzw()).all();
 	}
 
 	//! Get the surface area of the box in squared units
 	inline float getArea() const
 	{
-		core::vectorSIMDf a = box + box.zwxx();	// ( abs(x2-x1), abs(y2-y1) )
-		return a.x * a.y;						// multiplication of both sides of the square
+		core::vectorSIMDf a = internalBoxRepresentation + internalBoxRepresentation.zwxx();
+		return a.x* a.y;
 	}
 
-	//! Stores all 8 edges of the box into an array
+	//! Stores all 4 edges of the box into an array
 	/** \param edges: Pointer to array of 8 edges. */
-	void getEdges(core::vectorSIMDf& edges) const;
+	void getEdges(core::vectorSIMDf & edges) const;
 
 	//! Repairs the box.
 	/** Necessary if for example MinEdge and MaxEdge are swapped. */
@@ -102,9 +104,9 @@ public:
 	/** Border is included (IS part of the box)!
 	\param p: Point to check.
 	\return True if the point is within the box and false if not */
-	inline bool isPointInside(const core::vectorSIMDf& p) const
+	inline bool isPointInside(const core::vectorSIMDf & p) const
 	{
-		core::vector4db_SIMD result = (p.xyxy() ^ SIGN_FLIP_MASK_XY) <= box;
+		core::vector4db_SIMD result = (p.xyxy() ^ SIGN_FLIP_MASK_XY) <= internalBoxRepresentation;
 		return result.allBits();
 	}
 
@@ -112,9 +114,9 @@ public:
 	/** Border is excluded (NOT part of the box)!
 	\param p: Point to check.
 	\return True if the point is within the box and false if not. */
-	bool isPointTotalInside(const core::vectorSIMDf& p) const
+	bool isPointTotalInside(const core::vectorSIMDf & p) const
 	{
-		core::vector4db_SIMD result = (p.xyxy() ^ SIGN_FLIP_MASK_XY) < box;
+		core::vector4db_SIMD result = (p.xyxy() ^ SIGN_FLIP_MASK_XY) < internalBoxRepresentation;
 		return result.allBits();
 	}
 
@@ -122,12 +124,10 @@ public:
 	/** \param other: Other box to check against.
 	\return True if this box is completly inside the other box,
 	otherwise false. */
-	bool isFullInside(const aabb2dSIMDf& other) const
+	bool isFullInside(const aabb2dSIMDf & other) const
 	{
-		core::vector4db_SIMD a = box <= other.box;
-		core::vector4db_SIMD b = (box.zwxy() ^ SIGN_FLIP_MASK_XYZW) <= other.box;
-
-		return a.allBits() && b.allBits();
+		core::vector4db_SIMD a = internalBoxRepresentation <= other.internalBoxRepresentation;
+		return a.allBits();
 	}
 
 	//! Determines if the axis-aligned box intersects with another axis-aligned box.
@@ -135,35 +135,25 @@ public:
 	\return True if there is an intersection with the other box,
 	otherwise false. */
 
-	bool intersectsWithBox(const aabb2dSIMDf& other) const
+	bool intersectsWithBox(const aabb2dSIMDf & other) const
 	{
+		core::vectorSIMDf tmp = other.internalBoxRepresentation ^ SIGN_FLIP_MASK_XY;
+
 		return
-			isPointInside(other.box) ||
-			isPointInside(other.box.zwxx()) ||
-			isPointInside(other.box.xwxx()) ||
-			isPointInside(other.box.zyxx());
+			isPointInside(tmp) ||
+			isPointInside(tmp.zwxx()) ||
+			isPointInside(tmp.xwxx()) ||
+			isPointInside(tmp.zyxx());
 	}
 
-	//! Tests if the box intersects with a line
-	/** \param line: Line to test intersection with.
-	\return True if there is an intersection , else false. */
-	bool intersectsWithLine(const line3d<float>& line) const;
-
-	//! Tests if the box intersects with a line
-	/** \param linemiddle Center of the line.
-	\param linevect Vector of the line.
-	\param halflength Half length of the line.
-	\return True if there is an intersection, else false. */
-	bool intersectsWithLine(const core::vectorSIMDf& linemiddle,
-		const core::vectorSIMDf& linevect, float/*T*/ halflength) const;
-
-
-
 private:
-	core::vectorSIMDf box;
+	core::vectorSIMDf internalBoxRepresentation;
 };
+
 
 } 
 }
+
+#undef SIGN_FLIP_MASK_XY
 
 #endif
