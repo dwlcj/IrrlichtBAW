@@ -324,6 +324,12 @@ namespace core
 
 		inline vectorSIMD_32<T> operator-(T val) const { return (*this)-vectorSIMD_32<T>(val); }
 		inline vectorSIMD_32<T>& operator-=(T val) { return ( (*this) -= vectorSIMD_32<T>(val) ); }
+
+		inline vectorSIMD_32<T>& operator>>(uint32_t val) { _mm_store_si128(reinterpret_cast<__m128i*>(pointer), _mm_srai_epi32(Base::getAsRegister(),val)); return (*this); }
+
+		//comparison
+		inline vector4db_SIMD operator<(const vectorSIMDf& other) const { return _mm_cmplt_epi32(getAsRegister(), other.getAsRegister()); }
+
 /*
 		inline vectorSIMD_32<T>  operator*(T val) const { return (*this)*vectorSIMD_32<T>(val); }
 		inline vectorSIMD_32<T>& operator*=(T val) { return ( (*this) *= vectorSIMD_32<T>(val) ); }
