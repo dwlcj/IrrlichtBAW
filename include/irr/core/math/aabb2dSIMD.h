@@ -26,7 +26,7 @@ public:
 		internalBoxRepresentation = core::max_(internalBoxRepresentation, other.internalBoxRepresentation);
 	}
 
-	inline void addPoint(const core::vectorSIMDf& point)
+	inline void addPoint(const core::vector2df_SIMD& point)
 	{
 		addBox(aabb2dSIMDf(point));
 	}
@@ -50,7 +50,7 @@ public:
 	//! Resets the bounding box to a one-point box.
 	/** \param x X coord of the point.
 	\param y Y coord of the point. */
-	inline void reset(const core::vectorSIMDf& point)
+	inline void reset(const core::vector2df_SIMD& point)
 	{
 		internalBoxRepresentation = point.xyxy();
 		internalBoxRepresentation ^= SIGN_FLIP_MASK_XY;
@@ -91,23 +91,26 @@ public:
 
 	//! Stores all 4 edges of the box into an array
 	/**
-	A ----- D
+	D ----- C
 	|		|
 	|		|
-	B ----- C
+	A ----- B
 
 	array modified by this function will store edges in this order:
-	AB, BC, AD, DC
+	A, B, C, D
 	\param edges: Pointer to array of 4 edges. */
-	void getEdges(core::vectorSIMDf* edges) const
+	void getCorners(core::vectorSIMDf* corners) const
 	{
 		core::vectorSIMDf ordRepBox = internalBoxRepresentation ^ SIGN_FLIP_MASK_XY;
 
 		
-		edges[0] = ordRepBox.wxxy();	//AB
-		edges[1] = ordRepBox.xyzy();	//BC
-		edges[2] = ordRepBox.xwzw();	//AD
-		edges[3] = ordRepBox.zwzy();	//DC
+		corners[0] = ordRepBox.xyzw();	//A
+		corners[1] = ordRepBox.zyzw();	//B
+		corners[2] = ordRepBox.zwzw();	//C
+		corners[3] = ordRepBox.xwzw();	//D
+
+		for (int i = 0; i < 4; i++)
+			corners[i].makeSafe2D();
 	}
 
 	//! Repairs the box.
@@ -124,7 +127,7 @@ public:
 	/** Border is included (IS part of the box)!
 	\param p: Point to check.
 	\return True if the point is within the box and false if not */
-	inline bool isPointInside(const core::vectorSIMDf & p) const
+	inline bool isPointInside(const core::vector2df_SIMD& p) const
 	{
 		core::vector4db_SIMD result = (p.xyxy() ^ SIGN_FLIP_MASK_XY) <= internalBoxRepresentation;
 		return result.allBits();
@@ -134,7 +137,7 @@ public:
 	/** Border is excluded (NOT part of the box)!
 	\param p: Point to check.
 	\return True if the point is within the box and false if not. */
-	inline bool isPointTotalInside(const core::vectorSIMDf & p) const
+	inline bool isPointTotalInside(const core::vector2df_SIMD& p) const
 	{
 		core::vector4db_SIMD result = (p.xyxy() ^ SIGN_FLIP_MASK_XY) < internalBoxRepresentation;
 		return result.allBits();
@@ -144,7 +147,7 @@ public:
 	/** \param other: Other box to check against.
 	\return True if this box is completly inside the other box,
 	otherwise false. */
-	inline bool isFullInside(const aabb2dSIMDf & other) const
+	inline bool isFullInside(const aabb2dSIMDf& other) const
 	{
 		core::vector4db_SIMD a = internalBoxRepresentation <= other.internalBoxRepresentation;
 		return a.allBits();
