@@ -13,9 +13,9 @@
 
 namespace irr { namespace core {
 
-//will modify this class so aabbSIMDf will be able do derive from it too
+
 template<template<typename> typename CRTP, typename VECTOR_TYPE>
-class aabbSIMDBase
+class aabbSIMDBase : public AlignedBase<_IRR_VECTOR_ALIGNMENT>
 {
 	static_assert(
 		std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value ||
@@ -24,7 +24,6 @@ class aabbSIMDBase
 		"assertion failed: cannot use this type");
 
 public:
-
 	inline void addPoint(const VECTOR_TYPE& other)
 	{
 		DWN_CAST_THIS_PTR->addBox();
@@ -105,47 +104,7 @@ protected:
 };
 
 template<typename VECTOR_TYPE>
-class aabbSIMD : public aabbSIMDBase<aabbSIMD, VECTOR_TYPE> 
-{};
-
-
-template<>
-class aabbSIMD<core::vector2di32_SIMD> : public aabbSIMDBase<aabbSIMD,core::vector2di32_SIMD>
-{
-public:
-	aabbSIMD(const core::vector4di32_SIMD& _box)
-		//:box(_box) - doesn't compile
-	{
-		this->internalBoxRepresentation = _box;
-	}
-
-	inline core::vector2di32_SIMD getMinEdge() const
-	{
-		core::vector2di32_SIMD minEdge = internalBoxRepresentation;
-		minEdge.makeSafe2D();
-
-		return minEdge;
-	}
-
-	inline core::vector2di32_SIMD getMaxEdge() const
-	{
-		core::vector2di32_SIMD maxEdge = internalBoxRepresentation.zwzw();
-		maxEdge.makeSafe2D();
-
-		return maxEdge;
-	}
-
-	bool isPointInside(const core::vector2di32_SIMD& point) const
-	{
-		//temporary solution
-		return	
-			point.x <= getMaxEdge().x &&
-			point.y <= getMaxEdge().y &&
-			point.x >= getMinEdge().x &&
-			point.x >= getMinEdge().y;
-	}
-
-};
+class aabbSIMD;
 
 template<>
 class aabbSIMD<core::vector2df_SIMD> : public aabbSIMDBase<aabbSIMD, core::vector2df_SIMD>
@@ -216,9 +175,80 @@ public:
 
 };
 
+template<typename VECTOR_TYPE>
+class aabb2dSIMDInt : public aabbSIMDBase<aabb2dSIMDInt, VECTOR_TYPE>
+{
+	static_assert(
+		std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value ||
+		std::is_same<VECTOR_TYPE, core::vector2du32_SIMD>::value,
+		"assertion failed: cannot use this type");
+
+public:
+	inline aabb2dSIMDInt()
+	{
+		if constexpr (std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value)
+			internalBoxRepresentation = core::vector4di32_SIMD(INT_MIN);
+
+		if constexpr (std::is_same<VECTOR_TYPE, core::vector2du32_SIMD>::value)
+			internalBoxRepresentation = core::vector4du32_SIMD(0u);
+	}
+
+	inline aabb2dSIMDInt(const VECTOR_TYPE& _box)
+		//:inernalboxRepresentation(_box) - doesn't compile
+	{
+		this->internalBoxRepresentation = _box;
+	}
+
+	inline void addBox(const VECTOR_TYPE& other)
+	{
+		//TODO
+	}
+
+	inline core::vector2di32_SIMD getMinEdge() const
+	{
+		core::vector2di32_SIMD minEdge = internalBoxRepresentation;
+		minEdge.makeSafe2D();
+
+		return minEdge;
+	}
+
+	inline core::vector2di32_SIMD getMaxEdge() const
+	{
+		core::vector2di32_SIMD maxEdge = internalBoxRepresentation.zwzw();
+		maxEdge.makeSafe2D();
+
+		return maxEdge;
+	} 
+
+	inline bool isPointInside(const VECTOR_TYPE& p) const
+	{
+		//need operator< and operator>
+		//but implementation will be the same for both core::vector2di_SIMD and core::vector2du_SIMD
+
+		return true;
+	}
+
+	inline bool isPointTotalInside(const VECTOR_TYPE& p) const
+	{
+		//need operator< and operator>
+		//but implementation will be the same for both core::vector2di_SIMD and core::vector2du_SIMD
+
+		return true;
+	}
+
+	inline bool isFullInside(const aabb2dSIMDInt& other) const
+	{
+		//need operator< and operator>
+		//but implementation will be the same for both core::vector2di_SIMD and core::vector2du_SIMD
+
+		return true;
+	}
+
+};
+
 typedef aabbSIMD<core::vector2df_SIMD> aabb2dSIMDf;
-typedef aabbSIMD<core::vector2di32_SIMD> aabb2dSIMDi;
-typedef aabbSIMD<core::vector2du32_SIMD> aabb2dSIMDu;
+typedef aabb2dSIMDInt<core::vector2di32_SIMD> aabb2dSIMDi;
+typedef aabb2dSIMDInt<core::vector2du32_SIMD> aabb2dSIMDu;
 
 }
 } 
