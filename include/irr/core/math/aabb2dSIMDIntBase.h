@@ -22,10 +22,11 @@ class aabb2dSIMDBase : public AlignedBase<_IRR_VECTOR_ALIGNMENT>
 		std::is_same<VECTOR_TYPE, core::vector2df_SIMD>::value,
 		"assertion failed: cannot use this type");
 
-public:
+protected:
 	aabb2dSIMDBase() = default;
 	~aabb2dSIMDBase() = default;
 
+public:
 	inline void addPoint(const VECTOR_TYPE& other)
 	{
 		DWN_CAST_THIS_PTR->addBox();
@@ -48,7 +49,7 @@ public:
 	inline void reset(const VECTOR_TYPE& point)
 	{
 		CRTP<VECTOR_TYPE> pointBox(point);
-		internalBoxRepresentation = pointBox.internalBoxRepresentation;
+		*this = pointBox;
 	}
 
 	//! Repairs the box.
@@ -102,7 +103,7 @@ template<typename VECTOR_TYPE>
 class IRR_FORCE_EBO aabb2dSIMD;
 
 template<>
-class aabb2dSIMD<core::vector2df_SIMD> : public aabb2dSIMDBase<aabb2dSIMD, core::vector2df_SIMD>
+class IRR_FORCE_EBO aabb2dSIMD<core::vector2df_SIMD> : public aabb2dSIMDBase<aabb2dSIMD, core::vector2df_SIMD>
 {
 public:
 	inline aabb2dSIMD()
@@ -171,7 +172,7 @@ public:
 };
 
 template<typename VECTOR_TYPE>
-class aabb2dSIMDInt : public aabb2dSIMDBase<aabb2dSIMDInt, VECTOR_TYPE>
+class IRR_FORCE_EBO aabb2dSIMDInt : public aabb2dSIMDBase<aabb2dSIMDInt, VECTOR_TYPE>
 {
 	static_assert(
 		std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value ||
