@@ -5,17 +5,16 @@
 #include "irr/core/memory/memory.h"
 #include "irr/core/alloc/AlignedBase.h"
 #include "../include/vectorSIMD.h"
+#include "../include/irr/static_if.h"
 
-#include <iostream>
-
-#define DWN_CAST_THIS_PTR static_cast<const CRTP<VECTOR_TYPE>*>(this)
+#define DWN_CAST_THIS_PTR	static_cast<const CRTP<VECTOR_TYPE>*>(this)
 #define SIGN_FLIP_MASK_XY	core::vector3du32_SIMD(0x80000000, 0x80000000, 0x00000000, 0x00000000)
 
 namespace irr { namespace core {
 
 
 template<template<typename> typename CRTP, typename VECTOR_TYPE>
-class aabbSIMDBase : public AlignedBase<_IRR_VECTOR_ALIGNMENT>
+class aabb2dSIMDBase : public AlignedBase<_IRR_VECTOR_ALIGNMENT>
 {
 	static_assert(
 		std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value ||
@@ -24,6 +23,9 @@ class aabbSIMDBase : public AlignedBase<_IRR_VECTOR_ALIGNMENT>
 		"assertion failed: cannot use this type");
 
 public:
+	aabb2dSIMDBase() = default;
+	~aabb2dSIMDBase() = default;
+
 	inline void addPoint(const VECTOR_TYPE& other)
 	{
 		DWN_CAST_THIS_PTR->addBox();
@@ -45,22 +47,16 @@ public:
 	\param y Y coord of the point. */
 	inline void reset(const VECTOR_TYPE& point)
 	{
-		CRTP<VECTOR_TYPE> pointBox(point.xyxy());
-		internalBoxRepresentation= pointBox;
+		CRTP<VECTOR_TYPE> pointBox(point);
+		internalBoxRepresentation = pointBox.internalBoxRepresentation;
 	}
 
 	//! Repairs the box.
 	/** Necessary if for example MinEdge and MaxEdge are swapped. */
-	inline CRTP<VECTOR_TYPE> repair()
+	inline void repair()
 	{
-		//
-		//but will it work for aabbSIMDf for sure?
-		//
-		//
 		reset(DWN_CAST_THIS_PTR->getMinEdge());
 		addPoint(DWN_CAST_THIS_PTR->getMaxEdge());
-
-		return *this;
 	}
 
 	//! Check if the box is empty.
@@ -68,15 +64,14 @@ public:
 	\return True if box is empty, else false. */
 	inline bool isEmpty() const
 	{
-		return return (getMinEdge() == getMaxEdge()).all();;
+		return return (getMinEdge() == getMaxEdge()).all();
 	}
 
 	//! Get the surface area of the box in squared units
 	inline float getArea() const
 	{
-		VECTOR_TYPE a = DWN_CAST_THIS_PTR->internalBoxRepresentation.getMaxEdge().x - DWN_CAST_THIS_PTR->internalBoxRepresentation.getMinEdge().x;
-		VECTOR_TYPE b = DWN_CAST_THIS_PTR->internalBoxRepresentation.getMaxEdge().y - DWN_CAST_THIS_PTR->internalBoxRepresentation.getMinEdge().y;
-		return a * b;
+		VECTOR_TYPE extent = getExtent();
+		return extent.x * extent.y;
 	}
 
 	//! Get center of the bounding box
@@ -104,25 +99,25 @@ protected:
 };
 
 template<typename VECTOR_TYPE>
-class aabbSIMD;
+class IRR_FORCE_EBO aabb2dSIMD;
 
 template<>
-class aabbSIMD<core::vector2df_SIMD> : public aabbSIMDBase<aabbSIMD, core::vector2df_SIMD>
+class aabb2dSIMD<core::vector2df_SIMD> : public aabb2dSIMDBase<aabb2dSIMD, core::vector2df_SIMD>
 {
 public:
-	inline aabbSIMD()
+	inline aabb2dSIMD()
 		//: internalBoxRepresentation(-FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX)
 	{
 		internalBoxRepresentation = core::vectorSIMDf(-FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX);
 	};
 
-	aabbSIMD(const core::vector2df_SIMD& _box)
+	inline explicit aabb2dSIMD(const core::vector2df_SIMD& _box)
 		//:inernalboxRepresentation(_box) - doesn't compile
 	{
 		this->internalBoxRepresentation = _box ^ SIGN_FLIP_MASK_XY;
 	}
 
-	inline void addBox(const aabbSIMD<core::vector2df_SIMD>& other)
+	inline void addBox(const aabb2dSIMD<core::vector2df_SIMD>& other)
 	{
 		internalBoxRepresentation = core::max_(internalBoxRepresentation, other.internalBoxRepresentation);
 	}
@@ -167,7 +162,7 @@ public:
 	/** \param other: Other box to check against.
 	\return True if this box is completly inside the other box,
 	otherwise false. */
-	inline bool isFullInside(const aabbSIMD<core::vector2df_SIMD>& other) const
+	inline bool isFullInside(const aabb2dSIMD<core::vector2df_SIMD>& other) const
 	{
 		core::vector4db_SIMD a = internalBoxRepresentation<= other.internalBoxRepresentation;
 		return a.allBits();
@@ -176,7 +171,7 @@ public:
 };
 
 template<typename VECTOR_TYPE>
-class aabb2dSIMDInt : public aabbSIMDBase<aabb2dSIMDInt, VECTOR_TYPE>
+class aabb2dSIMDInt : public aabb2dSIMDBase<aabb2dSIMDInt, VECTOR_TYPE>
 {
 	static_assert(
 		std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value ||
@@ -186,15 +181,22 @@ class aabb2dSIMDInt : public aabbSIMDBase<aabb2dSIMDInt, VECTOR_TYPE>
 public:
 	inline aabb2dSIMDInt()
 	{
-		if constexpr (std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value)
-			internalBoxRepresentation = core::vector4di32_SIMD(INT_MIN);
+		IRR_PSEUDO_IF_CONSTEXPR_BEGIN(std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value)
+		{
+			internalBoxRepresentation = core::vector4di32_SIMD(INT_MIN, INT_MIN, INT_MAX, INT_MAX);
+		}
+		IRR_PSEUDO_IF_CONSTEXPR_END
 
-		if constexpr (std::is_same<VECTOR_TYPE, core::vector2du32_SIMD>::value)
-			internalBoxRepresentation = core::vector4du32_SIMD(0u);
+		IRR_PSEUDO_IF_CONSTEXPR_BEGIN(std::is_same<VECTOR_TYPE, core::vector2du32_SIMD>::value)
+		{
+			internalBoxRepresentation = core::vector4du32_SIMD(0u, 0u, UINT_MAX, UINT_MAX);
+		}	
+		IRR_PSEUDO_IF_CONSTEXPR_END
+
 	}
 
 	inline aabb2dSIMDInt(const VECTOR_TYPE& _box)
-		//:inernalboxRepresentation(_box) - doesn't compile
+		//:inernalboxRepresentation(_box)
 	{
 		this->internalBoxRepresentation = _box;
 	}
@@ -246,7 +248,7 @@ public:
 
 };
 
-typedef aabbSIMD<core::vector2df_SIMD> aabb2dSIMDf;
+typedef aabb2dSIMD<core::vector2df_SIMD> aabb2dSIMDf;
 typedef aabb2dSIMDInt<core::vector2di32_SIMD> aabb2dSIMDi;
 typedef aabb2dSIMDInt<core::vector2du32_SIMD> aabb2dSIMDu;
 
