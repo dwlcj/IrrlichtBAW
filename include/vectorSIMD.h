@@ -381,6 +381,7 @@ namespace core
 		//! convert from vectorNdf types of irrlicht - it will read a few values past the range of the allocated memory but _mm_loadu_ps shouldnt have that kind of protection
 		inline vectorSIMDf& set(const vector3df &p) {_mm_store_ps(pointer,_mm_loadu_ps(&p.X)); makeSafe3D(); return *this;}
 		inline vectorSIMDf& set(const vector2df &p) {_mm_store_ps(pointer,_mm_loadu_ps(&p.X)); makeSafe2D(); return *this;}
+
 */
         //! going directly from vectorSIMD to irrlicht types is safe cause vectorSIMDf is wider
 		inline vector2di& getAsVector2di(void) const
@@ -966,14 +967,14 @@ namespace core
     inline vectorSIMDIntBase vectorSIMDIntBase::operator|(const vectorSIMDf &other) const { return _mm_or_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister())); }
     inline vectorSIMDIntBase vectorSIMDIntBase::operator^(const vectorSIMDf &other) const { return _mm_xor_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister())); }
 
-    inline vectorSIMDIntBase& vectorSIMDIntBase::operator&=(const vectorSIMDf &other) { _mm_store_si128((__m128i*)this,_mm_and_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister()))); return *this; }
-    inline vectorSIMDIntBase& vectorSIMDIntBase::operator|=(const vectorSIMDf &other) { _mm_store_si128((__m128i*)this,_mm_or_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister()))); return *this;}
-    inline vectorSIMDIntBase& vectorSIMDIntBase::operator^=(const vectorSIMDf &other) { _mm_store_si128((__m128i*)this,_mm_xor_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister()))); return *this;}
+    inline vectorSIMDIntBase& vectorSIMDIntBase::operator&=(const vectorSIMDf &other) { _mm_store_si128(reinterpret_cast<__m128i*>(this),_mm_and_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister()))); return *this; }
+    inline vectorSIMDIntBase& vectorSIMDIntBase::operator|=(const vectorSIMDf &other) { _mm_store_si128(reinterpret_cast<__m128i*>(this),_mm_or_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister()))); return *this;}
+    inline vectorSIMDIntBase& vectorSIMDIntBase::operator^=(const vectorSIMDf &other) { _mm_store_si128(reinterpret_cast<__m128i*>(this),_mm_xor_si128(getAsRegister(),_mm_castps_si128(other.getAsRegister()))); return *this;}
 
 	inline core::vectorSIMDf unpackLo(const core::vectorSIMDf& v0, const core::vectorSIMDf& v1)
 	{
 		core::vectorSIMDf result;
-		*((__m128*)(result.pointer)) = _mm_unpacklo_ps(v0.getAsRegister(), v1.getAsRegister());
+		_mm_store_ps(result.pointer, _mm_unpacklo_ps(v0.getAsRegister(), v1.getAsRegister()));
 
 		return result;
 	}
@@ -981,7 +982,25 @@ namespace core
 	inline core::vectorSIMDf unpackHi(const core::vectorSIMDf& v0, const core::vectorSIMDf& v1)
 	{
 		core::vectorSIMDf result;
-		*((__m128*)(result.pointer)) = _mm_unpackhi_ps(v0.getAsRegister(), v1.getAsRegister());
+		_mm_store_ps(result.pointer, _mm_unpackhi_ps(v0.getAsRegister(), v1.getAsRegister()));
+
+		return result;
+	}
+
+	template<typename INT_TYPE>
+	inline core::vectorSIMD_32<INT_TYPE> unpackLo(const core::vectorSIMD_32<INT_TYPE>& v0, const core::vectorSIMD_32<INT_TYPE>& v1)
+	{
+		core::vectorSIMD_32<INT_TYPE> result;
+		_mm_store_si128(reinterpret_cast<__m128i*>(result.pointer), _mm_unpacklo_epi32(v0.getAsRegister(), v1.getAsRegister()));
+
+		return result;
+	}
+
+	template<typename INT_TYPE>
+	inline core::vectorSIMD_32<INT_TYPE> unpackHi(const core::vectorSIMD_32<INT_TYPE>& v0, const core::vectorSIMD_32<INT_TYPE>& v1)
+	{
+		core::vectorSIMD_32<INT_TYPE> result;
+		_mm_store_si128(reinterpret_cast<__m128i*>(result.pointer), _mm_unpackhi_epi32(v0.getAsRegister(), v1.getAsRegister()));
 
 		return result;
 	}

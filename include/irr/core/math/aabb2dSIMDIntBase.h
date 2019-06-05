@@ -7,14 +7,16 @@
 #include "../include/vectorSIMD.h"
 #include "../include/irr/static_if.h"
 
-#define DWN_CAST_THIS_PTR	static_cast<const CRTP<VECTOR_TYPE>*>(this)
-#define SIGN_FLIP_MASK_XY	core::vector3du32_SIMD(0x80000000, 0x80000000, 0x00000000, 0x00000000)
+
+#define DWN_CAST_THIS_PTR		static_cast<const CRTP<VECTOR_TYPE>*>(this)
+#define SIGN_FLIP_MASK_XY		core::vector3du32_SIMD(0x80000000, 0x80000000, 0x00000000, 0x00000000)
+#define SIGN_FLIP_MASK_XYZW		core::vector3du32_SIMD(0x80000000, 0x80000000, 0x80000000, 0x80000000)
 
 namespace irr { namespace core {
 
 
 template<template<typename> typename CRTP, typename VECTOR_TYPE>
-class aabb2dSIMDBase : public AlignedBase<_IRR_VECTOR_ALIGNMENT>
+class IRR_FORCE_EBO aabb2dSIMDBase : public AlignedBase<_IRR_VECTOR_ALIGNMENT>
 {
 	static_assert(
 		std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value ||
@@ -88,11 +90,16 @@ public:
 	otherwise false. */
 	bool intersectsWithBox(const CRTP<VECTOR_TYPE>& other) const
 	{
-		return
-			DWN_CAST_THIS_PTR->isPointInside(other.internalBoxRepresentation) ||
-			DWN_CAST_THIS_PTR->isPointInside(other.internalBoxRepresentation.zwxx()) ||
-			DWN_CAST_THIS_PTR->isPointInside(other.internalBoxRepresentation.xwxx()) ||
-			DWN_CAST_THIS_PTR->isPointInside(other.internalBoxRepresentation.zyxx());
+		VECTOR_TYPE minValues = core::unpackLo(internalBoxRepresentation, other.internalBoxRepresentation);
+		VECTOR_TYPE maxValues = core::unpackHi(other.internalBoxRepresentation, internalBoxRepresentation);
+
+		IRR_PSEUDO_IF_CONSTEXPR_BEGIN(std::is_same<VECTOR_TYPE, core::vector2df_SIMD>::value)
+		{
+			minValues ^= SIGN_FLIP_MASK_XYZW;
+		}
+		IRR_PSEUDO_IF_CONSTEXPR_END
+				
+		return (minValues <= maxValues).all();
 	}
 
 protected:
@@ -184,13 +191,13 @@ public:
 	{
 		IRR_PSEUDO_IF_CONSTEXPR_BEGIN(std::is_same<VECTOR_TYPE, core::vector2di32_SIMD>::value)
 		{
-			internalBoxRepresentation = core::vector4di32_SIMD(INT_MIN, INT_MIN, INT_MAX, INT_MAX);
+			internalBoxRepresentation = core::vector4di32_SIMD(INT_MAX, INT_MAX, INT_MIN, INT_MIN);
 		}
 		IRR_PSEUDO_IF_CONSTEXPR_END
 
 		IRR_PSEUDO_IF_CONSTEXPR_BEGIN(std::is_same<VECTOR_TYPE, core::vector2du32_SIMD>::value)
 		{
-			internalBoxRepresentation = core::vector4du32_SIMD(0u, 0u, UINT_MAX, UINT_MAX);
+			internalBoxRepresentation = core::vector4du32_SIMD(UINT_MAX, UINT_MAX, 0u, 0u);
 		}	
 		IRR_PSEUDO_IF_CONSTEXPR_END
 
@@ -258,5 +265,6 @@ typedef aabb2dSIMDInt<core::vector2du32_SIMD> aabb2dSIMDu;
 
 #undef DWN_CAST_THIS_PTR
 #undef SIGN_FLIP_MASK_XY
+#undef SIGN_FLIP_MASK_XYZW
 
 #endif
