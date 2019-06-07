@@ -8,7 +8,6 @@
 #include "IDriverMemoryAllocation.h"
 #include "IGPUBuffer.h"
 #include "irr/video/StreamingTransientDataBuffer.h"
-#include "IMeshBuffer.h"
 #include "ITexture.h"
 #include "IMultisampleTexture.h"
 #include "ITextureBufferObject.h"
@@ -16,11 +15,16 @@
 #include "IVideoCapabilityReporter.h"
 #include "IQueryObject.h"
 #include "IGPUTimestampQuery.h"
+#include "IDriverFence.h"
+#include "irr/video/asset_traits.h"
 
 namespace irr
 {
+class IrrlichtDevice;
+
 namespace video
 {
+    class IGPUObjectFromAssetConverter;
 
 	//! Interface to the functionality of the graphics API device which does not require the submission of GPU commands onto a queue.
 	/** This interface only deals with OpenGL and Vulkan concepts which do not require a command to be recorded in a command buffer
@@ -29,18 +33,14 @@ namespace video
 	class IDriver : public virtual core::IReferenceCounted, public IVideoCapabilityReporter
 	{
         protected:
-            StreamingTransientDataBufferMT<>* defaultDownloadBuffer;
-            StreamingTransientDataBufferMT<>* defaultUploadBuffer;
+			core::smart_refctd_ptr<StreamingTransientDataBufferMT<> > defaultDownloadBuffer;
+			core::smart_refctd_ptr<StreamingTransientDataBufferMT<> > defaultUploadBuffer;
+            IrrlichtDevice* m_device;
 
-
-            IDriver() : IVideoCapabilityReporter(), defaultDownloadBuffer(nullptr), defaultUploadBuffer(nullptr) {}
+            inline IDriver(IrrlichtDevice* _dev) : IVideoCapabilityReporter(), defaultDownloadBuffer(nullptr), defaultUploadBuffer(nullptr), m_device{_dev} {}
 
             virtual ~IDriver()
             {
-                if (defaultDownloadBuffer)
-                    defaultDownloadBuffer->drop();
-                if (defaultUploadBuffer)
-                    defaultUploadBuffer->drop();
             }
         public:
             //! needs to be "deleted" since its not refcounted by GPU driver internally
@@ -49,7 +49,7 @@ namespace video
             \param whether to perform an implicit flush the first time CPU waiting,
             this only works if the first wait is from the same thread as the one which
             placed the fence. **/
-            virtual IDriverFence* placeFence(const bool& implicitFlushWaitSameThread=false) = 0;
+			virtual core::smart_refctd_ptr<IDriverFence> placeFence(const bool& implicitFlushWaitSameThread = false) = 0;
 
             static inline IDriverMemoryBacked::SDriverMemoryRequirements getDeviceLocalGPUMemoryReqs()
             {
@@ -126,6 +126,8 @@ namespace video
             //! Low level function used to implement the above, use with caution
             virtual IGPUBuffer* createGPUBuffer(const IDriverMemoryBacked::SDriverMemoryRequirements& initialMreqs, const bool canModifySubData=false) {return nullptr;}
 
+            //! Creates a texture
+            virtual ITexture* createGPUTexture(const ITexture::E_TEXTURE_TYPE& type, const uint32_t* size, uint32_t mipmapLevels, asset::E_FORMAT format = asset::EF_B8G8R8A8_UNORM) { return nullptr; }
 
             //! For memory allocations without the video::IDriverMemoryAllocation::EMCF_COHERENT mapping capability flag you need to call this for the CPU writes to become GPU visible
             virtual void flushMappedMemoryRanges(uint32_t memoryRangeCount, const video::IDriverMemoryAllocation::MappedMemoryRange* pMemoryRanges) {}
@@ -190,10 +192,10 @@ namespace video
             virtual IGPUBuffer* createGPUBufferOnDedMem(const IDriverMemoryBacked::SDriverMemoryRequirements& initialMreqs, const bool canModifySubData=false) {return nullptr;}
 
             //!
-            virtual StreamingTransientDataBufferMT<>* getDefaultDownStreamingBuffer() {return defaultDownloadBuffer;}
+            virtual StreamingTransientDataBufferMT<>* getDefaultDownStreamingBuffer() {return defaultDownloadBuffer.get();}
 
             //!
-            virtual StreamingTransientDataBufferMT<>* getDefaultUpStreamingBuffer() {return defaultUploadBuffer;}
+            virtual StreamingTransientDataBufferMT<>* getDefaultUpStreamingBuffer() {return defaultUploadBuffer.get();}
 
             //! WARNING, THIS FUNCTION MAY STALL AND BLOCK
             inline void updateBufferRangeViaStagingBuffer(IGPUBuffer* buffer, size_t offset, size_t size, const void* data)
@@ -203,23 +205,21 @@ namespace video
                     const void* dataPtr = reinterpret_cast<const uint8_t*>(data)+uploadedSize;
                     uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_address;
                     uint32_t alignment = 64u; // smallest mapping alignment capability
-                    uint32_t subSize = std::min(core::alignDown(defaultUploadBuffer->max_size(),alignment),size-uploadedSize);
+                    uint32_t subSize = std::min(core::alignDown(defaultUploadBuffer.get()->max_size(),alignment),size-uploadedSize);
 
-                    defaultUploadBuffer->multi_place(std::chrono::microseconds(500u),1u,(const void* const*)&dataPtr,&localOffset,&subSize,&alignment);
+                    defaultUploadBuffer.get()->multi_place(std::chrono::microseconds(500u),1u,(const void* const*)&dataPtr,&localOffset,&subSize,&alignment);
                     // keep trying again
                     if (localOffset==video::StreamingTransientDataBufferMT<>::invalid_address)
                         continue;
 
                     // some platforms expose non-coherent host-visible GPU memory, so writes need to be flushed explicitly
-                    if (defaultUploadBuffer->needsManualFlushOrInvalidate())
-                        this->flushMappedMemoryRanges({{defaultUploadBuffer->getBuffer()->getBoundMemory(),localOffset,subSize}});
+                    if (defaultUploadBuffer.get()->needsManualFlushOrInvalidate())
+                        this->flushMappedMemoryRanges({{defaultUploadBuffer.get()->getBuffer()->getBoundMemory(),localOffset,subSize}});
                     // after we make sure writes are in GPU memory (visible to GPU) and not still in a cache, we can copy using the GPU to device-only memory
-                    this->copyBuffer(defaultUploadBuffer->getBuffer(),buffer,localOffset,offset+uploadedSize,subSize);
+                    this->copyBuffer(defaultUploadBuffer.get()->getBuffer(),buffer,localOffset,offset+uploadedSize,subSize);
                     // this doesn't actually free the memory, the memory is queued up to be freed only after the GPU fence/event is signalled
-                    auto fence = this->placeFence();
                     // no glFlush needed because waitCPU is not done to block execution until GPU is done on the allocations
-                    defaultUploadBuffer->multi_free(1u,&localOffset,&subSize,fence);
-                    fence->drop();
+                    defaultUploadBuffer.get()->multi_free(1u,&localOffset,&subSize,this->placeFence());
                     uploadedSize += subSize;
                 }
             }
@@ -238,7 +238,7 @@ namespace video
 
 
             //! Creates a VAO or InputAssembly for OpenGL and Vulkan respectively
-            virtual scene::IGPUMeshDataFormatDesc* createGPUMeshDataFormatDesc(core::LeakDebugger* dbgr=NULL) {return nullptr;}
+            virtual video::IGPUMeshDataFormatDesc* createGPUMeshDataFormatDesc(core::LeakDebugger* dbgr=NULL) {return nullptr;}
 
 
             //! Creates a framebuffer object with no attachments
@@ -257,9 +257,9 @@ namespace video
             \param List of .
             \return .
             Bla bla. */
-            static inline void dropWholeMipChain(const core::vector<CImageData*>& mipImages)
+            static inline void dropWholeMipChain(const core::vector<asset::CImageData*>& mipImages)
             {
-                for (core::vector<CImageData*>::const_iterator it=mipImages.begin(); it!=mipImages.end(); it++)
+                for (core::vector<asset::CImageData*>::const_iterator it=mipImages.begin(); it!=mipImages.end(); it++)
                     (*it)->drop();
             }
             //!
@@ -269,6 +269,9 @@ namespace video
                 for (; it!=limit; it++)
                     (*it)->drop();
             }
+
+            template<typename AssetType>
+            core::vector<typename video::asset_traits<AssetType>::GPUObjectType*> getGPUObjectsFromAssets(AssetType** const _begin, AssetType** const _end, IGPUObjectFromAssetConverter* _converter = nullptr);
 	};
 
 } // end namespace video

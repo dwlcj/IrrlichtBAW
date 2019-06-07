@@ -6,8 +6,6 @@
 #include "CSceneManager.h"
 #include <sstream>
 
-#ifdef _IRR_COMPILE_WITH_CONSOLE_DEVICE_
-
 #include "os.h"
 
 // to close the device on terminate signal
@@ -120,7 +118,7 @@ CIrrDeviceConsole::CIrrDeviceConsole(const SIrrlichtCreationParameters& params)
 
 	case video::EDT_BURNINGSVIDEO:
 		#ifdef _IRR_COMPILE_WITH_BURNINGSVIDEO_
-		VideoDriver = video::createBurningVideoDriver(CreationParams, FileSystem, this);
+		VideoDriver = video::createBurningVideoDriver(this, CreationParams, FileSystem, this);
 		#else
 		os::Printer::log("Burning's Video driver was not compiled in.", ELL_ERROR);
 		#endif
@@ -129,7 +127,7 @@ CIrrDeviceConsole::CIrrDeviceConsole(const SIrrlichtCreationParameters& params)
 		os::Printer::log("The console device cannot use hardware drivers yet.", ELL_ERROR);
 		break;
 	case video::EDT_NULL:
-		VideoDriver = video::createNullDriver(FileSystem, CreationParams.WindowSize);
+		VideoDriver = video::createNullDriver(this, FileSystem, CreationParams.WindowSize);
 		break;
 	default:
 		break;
@@ -440,5 +438,3 @@ void CIrrDeviceConsole::addPostPresentText(int16_t X, int16_t Y, const wchar_t *
 }
 
 } // end namespace irr
-
-#endif // _IRR_COMPILE_WITH_CONSOLE_DEVICE_

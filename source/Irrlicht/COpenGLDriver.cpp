@@ -5,7 +5,7 @@
 #include "COpenGLDriver.h"
 // needed here also because of the create methods' parameters
 #include "CNullDriver.h"
-#include "CSkinnedMesh.h"
+#include "irr/video/CGPUSkinnedMesh.h"
 
 #include "vectorSIMD.h"
 
@@ -34,13 +34,16 @@
 #endif
 
 #ifdef _IRR_COMPILE_WITH_SDL_DEVICE_
+#include "CIrrDeviceSDL.h"
 #include <SDL/SDL.h>
 #endif
 
 #if defined(_IRR_COMPILE_WITH_WINDOWS_DEVICE_)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "CIrrDeviceWin32.h"
 #elif defined(_IRR_COMPILE_WITH_X11_DEVICE_)
+#include "CIrrDeviceLinux.h"
 #include <dlfcn.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -54,6 +57,8 @@ namespace irr
 namespace video
 {
 
+//: CNullDriver(device, io, params.WindowSize), COpenGLExtensionHandler(),
+//	CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(asset::EF_R8G8B8_UNORM), Params(params),
 // -----------------------------------------------------------------------
 // WINDOWS CONSTRUCTOR
 // -----------------------------------------------------------------------
@@ -61,16 +66,15 @@ namespace video
 //! Windows constructor and init code
 COpenGLDriver::COpenGLDriver(const irr::SIrrlichtCreationParameters& params,
 		io::IFileSystem* io, CIrrDeviceWin32* device)
-: CNullDriver(io, params.WindowSize), COpenGLExtensionHandler(),
-	runningInRenderDoc(false),  CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(ECF_R8G8B8), Params(params),
+: CNullDriver(device, io, params.WindowSize), COpenGLExtensionHandler(),
+	runningInRenderDoc(false),  CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(asset::EF_R8G8B8_UNORM), Params(params),
 	HDc(0), Window(static_cast<HWND>(params.WindowId)), Win32Device(device),
 	DeviceType(EIDT_WIN32), AuxContexts(0)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("COpenGLDriver");
 	#endif
 }
-
 
 bool COpenGLDriver::changeRenderContext(const SExposedVideoData& videoData, CIrrDeviceWin32* device)
 {
@@ -270,7 +274,7 @@ bool COpenGLDriver::initDriver(CIrrDeviceWin32* device)
 		wglExtensions = irrGetExtensionsString(HDc);
 #endif
 	const bool pixel_format_supported = (wglExtensions.find("WGL_ARB_pixel_format") != -1);
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	os::Printer::log("WGL_extensions", wglExtensions.c_str());
 #endif
 
@@ -291,8 +295,7 @@ bool COpenGLDriver::initDriver(CIrrDeviceWin32* device)
 			WGL_DOUBLE_BUFFER_ARB,Params.Doublebuffer ? 1 : 0,
 			WGL_STEREO_ARB,Params.Stereobuffer ? 1 : 0,
 			WGL_PIXEL_TYPE_ARB, WGL_TYPE_RGBA_ARB,
-			WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB, Params.HandleSRGB ? 1:0,
-//			WGL_DEPTH_FLOAT_EXT, 1,
+			WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB, 1,
 			0,0,0,0
 		};
 
@@ -379,12 +382,17 @@ bool COpenGLDriver::initDriver(CIrrDeviceWin32* device)
 	int iAttribs[] =
 	{
 		WGL_CONTEXT_MAJOR_VERSION_ARB, 4,
-		WGL_CONTEXT_MINOR_VERSION_ARB, 5,
+		WGL_CONTEXT_MINOR_VERSION_ARB, 6,
 		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
 		0
 	};
 	// create rendering context
 	hrc=wglCreateContextAttribs_ARB(HDc, 0, iAttribs);
+	if (!hrc)
+	{
+		iAttribs[3] = 5;
+		hrc=wglCreateContextAttribs_ARB(HDc, 0, iAttribs);
+	}
 	if (!hrc)
 	{
 		iAttribs[3] = 4;
@@ -433,16 +441,16 @@ bool COpenGLDriver::initDriver(CIrrDeviceWin32* device)
 	if (pfd.cAlphaBits != 0)
 	{
 		if (pfd.cRedBits == 8)
-			ColorFormat = ECF_A8R8G8B8;
+			ColorFormat = asset::EF_B8G8R8A8_UNORM;
 		else
-			ColorFormat = ECF_A1R5G5B5;
+			ColorFormat = asset::EF_A1R5G5B5_UNORM_PACK16;
 	}
 	else
 	{
 		if (pfd.cRedBits == 8)
-			ColorFormat = ECF_R8G8B8;
+			ColorFormat = asset::EF_R8G8B8_UNORM;
 		else
-			ColorFormat = ECF_R5G6B5;
+			ColorFormat = asset::EF_B5G6R5_UNORM_PACK16;
 	}
 
 #ifdef _IRR_COMPILE_WITH_OPENCL_
@@ -499,12 +507,12 @@ bool COpenGLDriver::deinitAuxContext()
 //! Windows constructor and init code
 COpenGLDriver::COpenGLDriver(const SIrrlichtCreationParameters& params,
 		io::IFileSystem* io, CIrrDeviceMacOSX *device)
-: CNullDriver(io, params.WindowSize), COpenGLExtensionHandler(),
-	runningInRenderDoc(false),  CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(ECF_R8G8B8),
+: CNullDriver(device, io, params.WindowSize), COpenGLExtensionHandler(),
+    runningInRenderDoc(false), CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(asset::EF_R8G8B8_UNORM),
 	Params(params),
 	OSXDevice(device), DeviceType(EIDT_OSX), AuxContexts(0)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("COpenGLDriver");
 	#endif
 
@@ -520,11 +528,11 @@ COpenGLDriver::COpenGLDriver(const SIrrlichtCreationParameters& params,
 //! Linux constructor and init code
 COpenGLDriver::COpenGLDriver(const SIrrlichtCreationParameters& params,
 		io::IFileSystem* io, CIrrDeviceLinux* device)
-: CNullDriver(io, params.WindowSize), COpenGLExtensionHandler(),
-	runningInRenderDoc(false),  CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(ECF_R8G8B8),
+: CNullDriver(device, io, params.WindowSize), COpenGLExtensionHandler(),
+	runningInRenderDoc(false),  CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(asset::EF_R8G8B8_UNORM),
 	Params(params), X11Device(device), DeviceType(EIDT_X11), AuxContexts(0)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("COpenGLDriver");
 	#endif
 }
@@ -653,12 +661,12 @@ bool COpenGLDriver::deinitAuxContext()
 //! SDL constructor and init code
 COpenGLDriver::COpenGLDriver(const SIrrlichtCreationParameters& params,
 		io::IFileSystem* io, CIrrDeviceSDL* device)
-: CNullDriver(io, params.WindowSize), COpenGLExtensionHandler(),
-	runningInRenderDoc(false),  CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(ECF_R8G8B8),
+: CNullDriver(device, io, params.WindowSize), COpenGLExtensionHandler(),
+    runningInRenderDoc(false), CurrentRenderMode(ERM_NONE), ResetRenderStates(true), ColorFormat(EF_R8G8B8_UNORM),
 	CurrentTarget(ERT_FRAME_BUFFER), Params(params),
 	SDLDevice(device), DeviceType(EIDT_SDL), AuxContexts(0)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("COpenGLDriver");
 	#endif
 
@@ -677,7 +685,6 @@ COpenGLDriver::~COpenGLDriver()
     cleanUpContextBeforeDelete();
 
 	deleteMaterialRenders();
-	deleteAllTextures();
 
     //! Spin wait for other contexts to deinit
     //! @TODO: Change trylock to semaphore
@@ -760,7 +767,7 @@ uint16_t COpenGLDriver::retrieveDisplayRefreshRate() const
         return 0u;
     return dm.dmDisplayFrequency;
 #elif defined(_IRR_COMPILE_WITH_X11_DEVICE_)
-#ifdef _IRR_LINUX_X11_RANDR_
+#   ifdef _IRR_LINUX_X11_RANDR_
     Display* disp = XOpenDisplay(NULL);
     Window root = RootWindow(disp, 0);
 
@@ -768,16 +775,14 @@ uint16_t COpenGLDriver::retrieveDisplayRefreshRate() const
     uint16_t rate = XRRConfigCurrentRate(conf);
 
     return rate;
-#else
-#ifdef _DEBUG
+#   else
+#       ifdef _IRR_DEBUG
     os::Printer::log("Refresh rate retrieval without Xrandr compiled in is not supprted!\n", ELL_WARNING);
-#endif
+#       endif
     return 0u;
-#endif // _IRR_LINUX_X11_RANDR_
-#elif defined(_IRR_COMPILE_WITH_CONSOLE_DEVICE_)
-    return 0u;
+#   endif // _IRR_LINUX_X11_RANDR_
 #else
-#error "Not implemented for this platform"
+    return 0u;
 #endif
 }
 
@@ -981,10 +986,7 @@ bool COpenGLDriver::genericDriverInit()
 	// Reset The Current Viewport
 	glViewport(0, 0, Params.WindowSize.Width, Params.WindowSize.Height);
 
-/* Pending enabling test
-	if (Params.HandleSRGB)
-		glEnable(GL_FRAMEBUFFER_SRGB);
-*/
+	glEnable(GL_FRAMEBUFFER_SRGB);
     glDisable(GL_DITHER);
     glDisable(GL_MULTISAMPLE);
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
@@ -1052,7 +1054,7 @@ public:
             }
         }
     }
-    virtual void OnSetMaterial(video::IMaterialRendererServices* services, const video::SMaterial &material, const video::SMaterial &lastMaterial)
+    virtual void OnSetMaterial(video::IMaterialRendererServices* services, const video::SGPUMaterial &material, const video::SGPUMaterial &lastMaterial)
     {
         currentMatType = material.MaterialType;
 	}
@@ -1187,8 +1189,6 @@ bool COpenGLDriver::endScene()
 {
 	CNullDriver::endScene();
 
-	//glFlush();
-
 #ifdef _IRR_COMPILE_WITH_WINDOWS_DEVICE_
 	if (DeviceType == EIDT_WIN32)
 		return SwapBuffers(HDc) == TRUE;
@@ -1269,10 +1269,10 @@ void COpenGLDriver::flushMappedMemoryRanges(uint32_t memoryRangeCount, const vid
     for (uint32_t i=0; i<memoryRangeCount; i++)
     {
         auto range = pMemoryRanges+i;
-        #ifdef _DEBUG
+        #ifdef _IRR_DEBUG
         if (!range->memory->haveToMakeVisible())
             os::Printer::log("Why are you flushing mapped memory that does not need to be flushed!?",ELL_WARNING);
-        #endif // _DEBUG
+        #endif // _IRR_DEBUG
         extGlFlushMappedNamedBufferRange(static_cast<COpenGLBuffer*>(range->memory)->getOpenGLName(),range->offset,range->length);
     }
 }
@@ -1282,10 +1282,10 @@ void COpenGLDriver::invalidateMappedMemoryRanges(uint32_t memoryRangeCount, cons
     for (uint32_t i=0; i<memoryRangeCount; i++)
     {
         auto range = pMemoryRanges+i;
-        #ifdef _DEBUG
+        #ifdef _IRR_DEBUG
         if (!range->memory->haveToMakeVisible())
             os::Printer::log("Why are you invalidating mapped memory that does not need to be invalidated!?",ELL_WARNING);
-        #endif // _DEBUG
+        #endif // _IRR_DEBUG
         extGlMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
     }
 }
@@ -1297,183 +1297,10 @@ void COpenGLDriver::copyBuffer(IGPUBuffer* readBuffer, IGPUBuffer* writeBuffer, 
     extGlCopyNamedBufferSubData(readbuffer->getOpenGLName(),writebuffer->getOpenGLName(),readOffset,writeOffset,length);
 }
 
-scene::IGPUMeshDataFormatDesc* COpenGLDriver::createGPUMeshDataFormatDesc(core::LeakDebugger* dbgr)
+IGPUMeshDataFormatDesc* COpenGLDriver::createGPUMeshDataFormatDesc(core::LeakDebugger* dbgr)
 {
     return new COpenGLVAOSpec(dbgr);
 }
-
-core::vector<scene::IGPUMesh*> COpenGLDriver::createGPUMeshesFromCPU(const core::vector<scene::ICPUMesh*>& meshes)
-{
-    core::vector<scene::IGPUMesh*> retval;
-
-    core::unordered_map<const scene::ICPUMeshBuffer*,scene::IGPUMeshBuffer*> createdMeshBuffers;
-    core::unordered_map<const scene::ICPUMeshDataFormatDesc*,scene::IGPUMeshDataFormatDesc*> createdVAOs;
-    core::unordered_map<const core::ICPUBuffer*,IGPUBuffer*> createdGPUBuffers;
-
-    auto findOrCreateBuffer = [&] (const core::ICPUBuffer* cpubuffer) -> video::IGPUBuffer*
-            {
-                auto foundGPUBuff = createdGPUBuffers.find(cpubuffer);
-                if (foundGPUBuff!=createdGPUBuffers.end())
-                    return foundGPUBuff->second;
-                else
-                {
-                    IDriverMemoryBacked::SDriverMemoryRequirements reqs;
-                    reqs.vulkanReqs.size = cpubuffer->getSize();
-                    reqs.vulkanReqs.alignment = 8;
-                    reqs.vulkanReqs.memoryTypeBits = 0xffffffffu;
-                    reqs.memoryHeapLocation = IDriverMemoryAllocation::ESMT_DEVICE_LOCAL;
-                    reqs.mappingCapability = IDriverMemoryAllocation::EMCF_CANNOT_MAP;
-                    reqs.prefersDedicatedAllocation = true;
-                    reqs.requiresDedicatedAllocation = true;
-                    IGPUBuffer* buffer = createGPUBufferOnDedMem(reqs,true);
-                    if (!buffer)
-                        return nullptr;
-
-                    buffer->updateSubRange(video::IDriverMemoryAllocation::MemoryRange(0,cpubuffer->getSize()),cpubuffer->getPointer());
-                    createdGPUBuffers.insert(std::pair<const core::ICPUBuffer*,IGPUBuffer*>(cpubuffer,buffer));
-                    return buffer;
-                }
-
-                return nullptr;
-            };
-
-    for (auto it=meshes.begin(); it!=meshes.end(); it++)
-    {
-        #if _DEBUG
-        for (auto it2=meshes.begin(); it2!=it; it2++)
-        {
-            if (*it==*it2)
-                os::Printer::log("Why are you creating duplicate GPU copies of ICPUMeshes?",ELL_WARNING);
-        }
-        #endif // _DEBUG
-        auto mesh = *it;
-
-        scene::IGPUMesh* gpumesh;
-        switch (mesh->getMeshType())
-        {
-            case scene::EMT_ANIMATED_SKINNED:
-                gpumesh = new scene::CGPUSkinnedMesh(static_cast<scene::ICPUSkinnedMesh*>(mesh)->getBoneReferenceHierarchy());
-                break;
-            default:
-                gpumesh = new scene::SGPUMesh();
-                break;
-        }
-
-        for (size_t i=0; i<mesh->getMeshBufferCount(); i++)
-        {
-            scene::ICPUMeshBuffer* origmeshbuf = mesh->getMeshBuffer(i);
-            const scene::ICPUMeshDataFormatDesc* origdesc = static_cast<scene::ICPUMeshDataFormatDesc*>(origmeshbuf->getMeshDataAndFormat());
-            if (!origdesc)
-                continue;
-
-            scene::IGPUMeshBuffer* meshbuffer = nullptr;
-            auto foundMB = createdMeshBuffers.find(origmeshbuf);
-            if (foundMB!=createdMeshBuffers.end())
-                meshbuffer = foundMB->second;
-            else
-            {
-                scene::IGPUMeshDataFormatDesc* vao = nullptr;
-                auto foundVAO = createdVAOs.find(origdesc);
-                if (foundVAO!=createdVAOs.end())
-                    vao = foundVAO->second;
-                else
-                {
-                    const core::ICPUBuffer* oldbuffer[scene::EVAI_COUNT];
-                    scene::E_COMPONENTS_PER_ATTRIBUTE components[scene::EVAI_COUNT];
-                    scene::E_COMPONENT_TYPE componentTypes[scene::EVAI_COUNT];
-
-                    bool success = true;
-                    bool noAttributes = true;
-                    for (size_t j=0; j<scene::EVAI_COUNT; j++)
-                    {
-                        scene::E_VERTEX_ATTRIBUTE_ID attrId = static_cast<scene::E_VERTEX_ATTRIBUTE_ID>(j);
-                        oldbuffer[attrId] = origdesc->getMappedBuffer(attrId);
-                        if (oldbuffer[attrId])
-                            noAttributes = false;
-
-                        components[attrId] = origdesc->getAttribComponentCount(attrId);
-                        componentTypes[attrId] = origdesc->getAttribType(attrId);
-                        if (!scene::validCombination(componentTypes[attrId],components[attrId]))
-                        {
-                            os::Printer::log("createGPUMeshFromCPU input ICPUMeshBuffer(s) have one or more invalid attribute specs!\n",ELL_ERROR);
-                            success = false;
-                            break;
-                        }
-                    }
-
-                    if (!noAttributes&&success)
-                    {
-                        vao = this->createGPUMeshDataFormatDesc();
-                        for (size_t j=0; j<scene::EVAI_COUNT; j++)
-                        {
-                            scene::E_VERTEX_ATTRIBUTE_ID attrId = static_cast<scene::E_VERTEX_ATTRIBUTE_ID>(j);
-                            if (!oldbuffer[attrId])
-                                continue;
-
-                            vao->mapVertexAttrBuffer(findOrCreateBuffer(oldbuffer[attrId]),
-                                                     attrId,components[attrId],componentTypes[attrId],
-                                                     origdesc->getMappedBufferStride(attrId),
-                                                     origdesc->getMappedBufferOffset(attrId),
-                                                     origdesc->getAttribDivisor(attrId));
-                        }
-                        if (origdesc->getIndexBuffer())
-                            vao->mapIndexBuffer(findOrCreateBuffer(origdesc->getIndexBuffer()));
-                        createdVAOs.insert(std::pair<const scene::ICPUMeshDataFormatDesc*,scene::IGPUMeshDataFormatDesc*>(origdesc,vao));
-                    }
-                }
-
-                if (!vao)
-                    continue;
-
-                meshbuffer = new scene::IGPUMeshBuffer();
-                meshbuffer->getMaterial() = origmeshbuf->getMaterial();
-                meshbuffer->setMeshDataAndFormat(vao);
-                {
-                    //set bbox
-                    core::aabbox3df oldBBox = origmeshbuf->getBoundingBox();
-                    if (mesh->getMeshType()!=scene::EMT_ANIMATED_SKINNED)
-                        origmeshbuf->recalculateBoundingBox();
-                    meshbuffer->setBoundingBox(origmeshbuf->getBoundingBox());
-                    if (mesh->getMeshType()!=scene::EMT_ANIMATED_SKINNED)
-                        origmeshbuf->setBoundingBox(oldBBox);
-                }
-                meshbuffer->setIndexType(origmeshbuf->getIndexType());
-                meshbuffer->setBaseVertex(origmeshbuf->getBaseVertex());
-                meshbuffer->setIndexCount(origmeshbuf->getIndexCount());
-                meshbuffer->setIndexBufferOffset(origmeshbuf->getIndexBufferOffset());
-                meshbuffer->setInstanceCount(origmeshbuf->getInstanceCount());
-                meshbuffer->setBaseInstance(origmeshbuf->getBaseInstance());
-                meshbuffer->setPrimitiveType(origmeshbuf->getPrimitiveType());
-                createdMeshBuffers.insert(std::pair<const scene::ICPUMeshBuffer*,scene::IGPUMeshBuffer*>(origmeshbuf,meshbuffer));
-            }
-
-            if (!meshbuffer)
-                continue;
-
-            switch (mesh->getMeshType())
-            {
-                case scene::EMT_ANIMATED_SKINNED:
-                    static_cast<scene::CGPUSkinnedMesh*>(gpumesh)->addMeshBuffer(meshbuffer,static_cast<scene::SCPUSkinMeshBuffer*>(origmeshbuf)->getMaxVertexBoneInfluences());
-                    break;
-                default:
-                    static_cast<scene::SGPUMesh*>(gpumesh)->addMeshBuffer(meshbuffer);
-                    break;
-            }
-        }
-        gpumesh->recalculateBoundingBox();
-        retval.push_back(gpumesh);
-    }
-
-    for (auto it=createdGPUBuffers.begin(); it!=createdGPUBuffers.end(); it++)
-        it->second->drop();
-    for (auto it=createdVAOs.begin(); it!=createdVAOs.end(); it++)
-        it->second->drop();
-    for (auto it=createdMeshBuffers.begin(); it!=createdMeshBuffers.end(); it++)
-        it->second->drop();
-
-    return retval;
-}
-
 
 IQueryObject* COpenGLDriver::createPrimitivesGeneratedQuery()
 {
@@ -1587,7 +1414,7 @@ static inline uint8_t* buffer_offset(const long offset)
 
 
 
-void COpenGLDriver::drawMeshBuffer(const scene::IGPUMeshBuffer* mb)
+void COpenGLDriver::drawMeshBuffer(const IGPUMeshBuffer* mb)
 {
     if (mb && !mb->getInstanceCount())
         return;
@@ -1600,14 +1427,14 @@ void COpenGLDriver::drawMeshBuffer(const scene::IGPUMeshBuffer* mb)
     if (!found->setActiveVAO(meshLayoutVAO,mb->isIndexCountGivenByXFormFeedback() ? mb:NULL))
         return;
 
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	if (mb->getIndexCount() > getMaximalIndicesCount())
 	{
 		char tmp[1024];
 		sprintf(tmp,"Could not draw, too many indices(%u), maxium is %u.", mb->getIndexCount(), getMaximalIndicesCount());
 		os::Printer::log(tmp, ELL_ERROR);
 	}
-#endif // _DEBUG
+#endif // _IRR_DEBUG
 
 	CNullDriver::drawMeshBuffer(mb);
 
@@ -1619,12 +1446,12 @@ void COpenGLDriver::drawMeshBuffer(const scene::IGPUMeshBuffer* mb)
     {
         switch (mb->getIndexType())
         {
-            case scene::EIT_16BIT:
+            case asset::EIT_16BIT:
             {
                 indexSize=GL_UNSIGNED_SHORT;
                 break;
             }
-            case scene::EIT_32BIT:
+            case asset::EIT_32BIT:
             {
                 indexSize=GL_UNSIGNED_INT;
                 break;
@@ -1637,7 +1464,7 @@ void COpenGLDriver::drawMeshBuffer(const scene::IGPUMeshBuffer* mb)
     GLenum primType = primitiveTypeToGL(mb->getPrimitiveType());
 	switch (mb->getPrimitiveType())
 	{
-		case scene::EPT_POINTS:
+		case asset::EPT_POINTS:
 		{
 			// prepare size and attenuation (where supported)
 			GLfloat particleSize=Material.Thickness;
@@ -1646,7 +1473,7 @@ void COpenGLDriver::drawMeshBuffer(const scene::IGPUMeshBuffer* mb)
 
 		}
 			break;
-		case scene::EPT_TRIANGLES:
+		case asset::EPT_TRIANGLES:
         {
             if (static_cast<uint32_t>(Material.MaterialType) < MaterialRenderers.size())
             {
@@ -1665,12 +1492,12 @@ void COpenGLDriver::drawMeshBuffer(const scene::IGPUMeshBuffer* mb)
     else if (mb->isIndexCountGivenByXFormFeedback())
     {
         COpenGLTransformFeedback* xfmFb = static_cast<COpenGLTransformFeedback*>(mb->getXFormFeedback());
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
         if (xfmFb->isEnded())
             os::Printer::log("Trying To DrawTransformFeedback which hasn't ended yet (call glEndTransformFeedback() on the damn thing)!\n",ELL_ERROR);
         if (mb->getXFormFeedbackStream()>=MaxVertexStreams)
             os::Printer::log("Trying to use more than GL_MAX_VERTEX_STREAMS vertex streams in transform feedback!\n",ELL_ERROR);
-#endif // _DEBUG
+#endif // _IRR_DEBUG
         extGlDrawTransformFeedbackStreamInstanced(primType,xfmFb->getOpenGLHandle(),mb->getXFormFeedbackStream(),mb->getInstanceCount());
     }
     else
@@ -1679,8 +1506,8 @@ void COpenGLDriver::drawMeshBuffer(const scene::IGPUMeshBuffer* mb)
 
 
 //! Indirect Draw
-void COpenGLDriver::drawArraysIndirect(  const scene::IMeshDataFormatDesc<video::IGPUBuffer>* vao,
-                                         const scene::E_PRIMITIVE_TYPE& mode,
+void COpenGLDriver::drawArraysIndirect(  const asset::IMeshDataFormatDesc<video::IGPUBuffer>* vao,
+                                         const asset::E_PRIMITIVE_TYPE& mode,
                                          const IGPUBuffer* indirectDrawBuff,
                                          const size_t& offset, const size_t& count, const size_t& stride)
 {
@@ -1703,7 +1530,7 @@ void COpenGLDriver::drawArraysIndirect(  const scene::IMeshDataFormatDesc<video:
     GLenum primType = primitiveTypeToGL(mode);
 	switch (mode)
 	{
-		case scene::EPT_POINTS:
+		case asset::EPT_POINTS:
 		{
 			// prepare size and attenuation (where supported)
 			GLfloat particleSize=Material.Thickness;
@@ -1711,7 +1538,7 @@ void COpenGLDriver::drawArraysIndirect(  const scene::IMeshDataFormatDesc<video:
 			glPointSize(particleSize);
 		}
 			break;
-		case scene::EPT_TRIANGLES:
+		case asset::EPT_TRIANGLES:
         {
             if (static_cast<uint32_t>(Material.MaterialType) < MaterialRenderers.size())
             {
@@ -1741,6 +1568,8 @@ bool COpenGLDriver::queryFeature(const E_DRIVER_FEATURE &feature) const
             return COpenGLExtensionHandler::FeatureAvailable[IRR_ARB_geometry_shader4]||true; //vulkan+android
         case EDF_TESSELLATION_SHADER:
             return COpenGLExtensionHandler::FeatureAvailable[IRR_ARB_tessellation_shader]||true; //vulkan+android
+        case EDF_GET_TEXTURE_SUB_IMAGE:
+            return COpenGLExtensionHandler::FeatureAvailable[IRR_ARB_get_texture_sub_image]; //only on OpenGL
         case EDF_TEXTURE_BARRIER:
             return COpenGLExtensionHandler::FeatureAvailable[IRR_ARB_texture_barrier]||COpenGLExtensionHandler::FeatureAvailable[IRR_NV_texture_barrier]||Version>=450;
         case EDF_STENCIL_ONLY_TEXTURE:
@@ -1767,9 +1596,9 @@ bool COpenGLDriver::queryFeature(const E_DRIVER_FEATURE &feature) const
 	return false;
 }
 
-void COpenGLDriver::drawIndexedIndirect(const scene::IMeshDataFormatDesc<video::IGPUBuffer>* vao,
-                                        const scene::E_PRIMITIVE_TYPE& mode,
-                                        const scene::E_INDEX_TYPE& type, const IGPUBuffer* indirectDrawBuff,
+void COpenGLDriver::drawIndexedIndirect(const asset::IMeshDataFormatDesc<video::IGPUBuffer>* vao,
+                                        const asset::E_PRIMITIVE_TYPE& mode,
+                                        const asset::E_INDEX_TYPE& type, const IGPUBuffer* indirectDrawBuff,
                                         const size_t& offset, const size_t& count, const size_t& stride)
 {
     if (!indirectDrawBuff)
@@ -1788,11 +1617,11 @@ void COpenGLDriver::drawIndexedIndirect(const scene::IMeshDataFormatDesc<video::
 	// draw everything
 	setRenderStates3DMode();
 
-	GLenum indexSize = type!=scene::EIT_16BIT ? GL_UNSIGNED_INT:GL_UNSIGNED_SHORT;
+	GLenum indexSize = type!=asset::EIT_16BIT ? GL_UNSIGNED_INT:GL_UNSIGNED_SHORT;
     GLenum primType = primitiveTypeToGL(mode);
 	switch (mode)
 	{
-		case scene::EPT_POINTS:
+		case asset::EPT_POINTS:
 		{
 			// prepare size and attenuation (where supported)
 			GLfloat particleSize=Material.Thickness;
@@ -1800,7 +1629,7 @@ void COpenGLDriver::drawIndexedIndirect(const scene::IMeshDataFormatDesc<video::
 			glPointSize(particleSize);
 		}
 			break;
-		case scene::EPT_TRIANGLES:
+		case asset::EPT_TRIANGLES:
         {
             if (static_cast<uint32_t>(Material.MaterialType) < MaterialRenderers.size())
             {
@@ -1916,77 +1745,142 @@ void COpenGLDriver::SAuxContext::BoundBuffer<BIND_POINT>::set(const COpenGLBuffe
 }
 
 
+static GLenum formatEnumToGLenum(asset::E_FORMAT fmt)
+{
+    using namespace asset;
+    switch (fmt)
+    {
+    case EF_R16_SFLOAT:
+    case EF_R16G16_SFLOAT:
+    case EF_R16G16B16_SFLOAT:
+    case EF_R16G16B16A16_SFLOAT:
+        return GL_HALF_FLOAT;
+    case EF_R32_SFLOAT:
+    case EF_R32G32_SFLOAT:
+    case EF_R32G32B32_SFLOAT:
+    case EF_R32G32B32A32_SFLOAT:
+        return GL_FLOAT;
+    case EF_B10G11R11_UFLOAT_PACK32:
+        return GL_UNSIGNED_INT_10F_11F_11F_REV;
+    case EF_R8_UNORM:
+    case EF_R8_UINT:
+    case EF_R8G8_UNORM:
+    case EF_R8G8_UINT:
+    case EF_R8G8B8_UNORM:
+    case EF_R8G8B8_UINT:
+    case EF_R8G8B8A8_UNORM:
+    case EF_R8G8B8A8_UINT:
+    case EF_R8_USCALED:
+    case EF_R8G8_USCALED:
+    case EF_R8G8B8_USCALED:
+    case EF_R8G8B8A8_USCALED:
+    case EF_B8G8R8A8_UNORM:
+        return GL_UNSIGNED_BYTE;
+    case EF_R8_SNORM:
+    case EF_R8_SINT:
+    case EF_R8G8_SNORM:
+    case EF_R8G8_SINT:
+    case EF_R8G8B8_SNORM:
+    case EF_R8G8B8_SINT:
+    case EF_R8G8B8A8_SNORM:
+    case EF_R8G8B8A8_SINT:
+    case EF_R8_SSCALED:
+    case EF_R8G8_SSCALED:
+    case EF_R8G8B8_SSCALED:
+    case EF_R8G8B8A8_SSCALED:
+        return GL_BYTE;
+    case EF_R16_UNORM:
+    case EF_R16_UINT:
+    case EF_R16G16_UNORM:
+    case EF_R16G16_UINT:
+    case EF_R16G16B16_UNORM:
+    case EF_R16G16B16_UINT:
+    case EF_R16G16B16A16_UNORM:
+    case EF_R16G16B16A16_UINT:
+    case EF_R16_USCALED:
+    case EF_R16G16_USCALED:
+    case EF_R16G16B16_USCALED:
+    case EF_R16G16B16A16_USCALED:
+        return GL_UNSIGNED_SHORT;
+    case EF_R16_SNORM:
+    case EF_R16_SINT:
+    case EF_R16G16_SNORM:
+    case EF_R16G16_SINT:
+    case EF_R16G16B16_SNORM:
+    case EF_R16G16B16_SINT:
+    case EF_R16G16B16A16_SNORM:
+    case EF_R16G16B16A16_SINT:
+    case EF_R16_SSCALED:
+    case EF_R16G16_SSCALED:
+    case EF_R16G16B16_SSCALED:
+    case EF_R16G16B16A16_SSCALED:
+        return GL_SHORT;
+    case EF_R32_UINT:
+    case EF_R32G32_UINT:
+    case EF_R32G32B32_UINT:
+    case EF_R32G32B32A32_UINT:
+        return GL_UNSIGNED_INT;
+    case EF_R32_SINT:
+    case EF_R32G32_SINT:
+    case EF_R32G32B32_SINT:
+    case EF_R32G32B32A32_SINT:
+        return GL_INT;
+    case EF_A2R10G10B10_UNORM_PACK32:
+    case EF_A2B10G10R10_UNORM_PACK32:
+    case EF_A2B10G10R10_USCALED_PACK32:
+    case EF_A2B10G10R10_UINT_PACK32:
+        return GL_UNSIGNED_INT_2_10_10_10_REV;
+    case EF_A2R10G10B10_SNORM_PACK32:
+    case EF_A2B10G10R10_SNORM_PACK32:
+    case EF_A2B10G10R10_SSCALED_PACK32:
+    case EF_A2B10G10R10_SINT_PACK32:
+        return GL_INT_2_10_10_10_REV;
+    case EF_R64_SFLOAT:
+    case EF_R64G64_SFLOAT:
+    case EF_R64G64B64_SFLOAT:
+    case EF_R64G64B64A64_SFLOAT:
+        return GL_DOUBLE;
+
+    default: return (GLenum)0;
+    }
+}
+
 COpenGLDriver::SAuxContext::COpenGLVAO::COpenGLVAO(const COpenGLVAOSpec* spec)
         : vao(0), lastValidated(0)
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
             ,debugHash(spec->getHash())
-#endif // _DEBUG
+#endif // _IRR_DEBUG
 {
     extGlCreateVertexArrays(1,&vao);
 
-    memcpy(attrOffset,&spec->getMappedBufferOffset(scene::EVAI_ATTR0),sizeof(attrOffset));
-    for (scene::E_VERTEX_ATTRIBUTE_ID attrId=scene::EVAI_ATTR0; attrId<scene::EVAI_COUNT; attrId = static_cast<scene::E_VERTEX_ATTRIBUTE_ID>(attrId+1))
+    memcpy(attrOffset,&spec->getMappedBufferOffset(asset::EVAI_ATTR0),sizeof(attrOffset));
+    for (asset::E_VERTEX_ATTRIBUTE_ID attrId=asset::EVAI_ATTR0; attrId<asset::EVAI_COUNT; attrId = static_cast<asset::E_VERTEX_ATTRIBUTE_ID>(attrId+1))
     {
         const IGPUBuffer* buf = spec->getMappedBuffer(attrId);
         mappedAttrBuf[attrId] = static_cast<const COpenGLBuffer*>(buf);
         if (mappedAttrBuf[attrId])
         {
+            const asset::E_FORMAT format = spec->getAttribFormat(attrId);
+
             mappedAttrBuf[attrId]->grab();
             attrStride[attrId] = spec->getMappedBufferStride(attrId);
 
             extGlEnableVertexArrayAttrib(vao,attrId);
             extGlVertexArrayAttribBinding(vao,attrId,attrId);
 
-            scene::E_COMPONENTS_PER_ATTRIBUTE components = spec->getAttribComponentCount(attrId);
-            scene::E_COMPONENT_TYPE type = spec->getAttribType(attrId);
-            switch (type)
-            {
-                case scene::ECT_FLOAT:
-                case scene::ECT_HALF_FLOAT:
-                case scene::ECT_DOUBLE_IN_FLOAT_OUT:
-                case scene::ECT_UNSIGNED_INT_10F_11F_11F_REV:
-                //INTEGER FORMS
-                case scene::ECT_NORMALIZED_INT_2_10_10_10_REV:
-                case scene::ECT_NORMALIZED_UNSIGNED_INT_2_10_10_10_REV:
-                case scene::ECT_NORMALIZED_BYTE:
-                case scene::ECT_NORMALIZED_UNSIGNED_BYTE:
-                case scene::ECT_NORMALIZED_SHORT:
-                case scene::ECT_NORMALIZED_UNSIGNED_SHORT:
-                case scene::ECT_NORMALIZED_INT:
-                case scene::ECT_NORMALIZED_UNSIGNED_INT:
-                case scene::ECT_INT_2_10_10_10_REV:
-                case scene::ECT_UNSIGNED_INT_2_10_10_10_REV:
-                case scene::ECT_BYTE:
-                case scene::ECT_UNSIGNED_BYTE:
-                case scene::ECT_SHORT:
-                case scene::ECT_UNSIGNED_SHORT:
-                case scene::ECT_INT:
-                case scene::ECT_UNSIGNED_INT:
-                    extGlVertexArrayAttribFormat(vao,attrId,eComponentsPerAttributeToGLint[components],eComponentTypeToGLenum[type],scene::isNormalized(type) ? GL_TRUE:GL_FALSE,0);
-                    break;
-                case scene::ECT_INTEGER_INT_2_10_10_10_REV:
-                case scene::ECT_INTEGER_UNSIGNED_INT_2_10_10_10_REV:
-                case scene::ECT_INTEGER_BYTE:
-                case scene::ECT_INTEGER_UNSIGNED_BYTE:
-                case scene::ECT_INTEGER_SHORT:
-                case scene::ECT_INTEGER_UNSIGNED_SHORT:
-                case scene::ECT_INTEGER_INT:
-                case scene::ECT_INTEGER_UNSIGNED_INT:
-                    extGlVertexArrayAttribIFormat(vao,attrId,eComponentsPerAttributeToGLint[components],eComponentTypeToGLenum[type],0);
-                    break;
-            //special
-                case scene::ECT_DOUBLE_IN_DOUBLE_OUT:
-                    extGlVertexArrayAttribLFormat(vao,attrId,eComponentsPerAttributeToGLint[components],GL_DOUBLE,0);
-                    break;
-            }
+            if (isFloatingPointFormat(format) && getTexelOrBlockSize(format)/getFormatChannelCount(format)==8u)//DOUBLE
+                extGlVertexArrayAttribLFormat(vao, attrId, getFormatChannelCount(format), GL_DOUBLE, 0);
+            else if (isFloatingPointFormat(format) || isScaledFormat(format) || isNormalizedFormat(format))//FLOATING-POINT, SCALED ("weak integer"), NORMALIZED
+                extGlVertexArrayAttribFormat(vao, attrId, isBGRALayoutFormat(format) ? GL_BGRA : getFormatChannelCount(format), formatEnumToGLenum(format), isNormalizedFormat(format) ? GL_TRUE : GL_FALSE, 0);
+            else if (isIntegerFormat(format))//INTEGERS
+                extGlVertexArrayAttribIFormat(vao, attrId, getFormatChannelCount(format), formatEnumToGLenum(format), 0);
 
             extGlVertexArrayBindingDivisor(vao,attrId,spec->getAttribDivisor(attrId));
-
             extGlVertexArrayVertexBuffer(vao,attrId,mappedAttrBuf[attrId]->getOpenGLName(),attrOffset[attrId],attrStride[attrId]);
         }
         else
         {
-            mappedAttrBuf[attrId] = NULL;
+            mappedAttrBuf[attrId] = nullptr;
             attrStride[attrId] = 16;
         }
     }
@@ -2005,7 +1899,7 @@ COpenGLDriver::SAuxContext::COpenGLVAO::~COpenGLVAO()
     if (vao)
         extGlDeleteVertexArrays(1,&vao);
 
-    for (scene::E_VERTEX_ATTRIBUTE_ID attrId=scene::EVAI_ATTR0; attrId<scene::EVAI_COUNT; attrId = static_cast<scene::E_VERTEX_ATTRIBUTE_ID>(attrId+1))
+    for (asset::E_VERTEX_ATTRIBUTE_ID attrId=asset::EVAI_ATTR0; attrId<asset::EVAI_COUNT; attrId = static_cast<asset::E_VERTEX_ATTRIBUTE_ID>(attrId+1))
     {
         if (!mappedAttrBuf[attrId])
             continue;
@@ -2019,17 +1913,17 @@ COpenGLDriver::SAuxContext::COpenGLVAO::~COpenGLVAO()
 
 void COpenGLDriver::SAuxContext::COpenGLVAO::bindBuffers(   const COpenGLBuffer* indexBuf,
                                                             const COpenGLBuffer* const* attribBufs,
-                                                            const size_t offsets[scene::EVAI_COUNT],
-                                                            const size_t strides[scene::EVAI_COUNT])
+                                                            const size_t offsets[asset::EVAI_COUNT],
+                                                            const uint32_t strides[asset::EVAI_COUNT])
 {
     uint64_t beginStamp = CNullDriver::ReallocationCounter;
 
-    for (scene::E_VERTEX_ATTRIBUTE_ID attrId=scene::EVAI_ATTR0; attrId<scene::EVAI_COUNT; attrId = static_cast<scene::E_VERTEX_ATTRIBUTE_ID>(attrId+1))
+    for (asset::E_VERTEX_ATTRIBUTE_ID attrId=asset::EVAI_ATTR0; attrId<asset::EVAI_COUNT; attrId = static_cast<asset::E_VERTEX_ATTRIBUTE_ID>(attrId+1))
     {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
         assert( (mappedAttrBuf[attrId]==NULL && attribBufs[attrId]==NULL)||
                 (mappedAttrBuf[attrId]!=NULL && attribBufs[attrId]!=NULL));
-#endif // _DEBUG
+#endif // _IRR_DEBUG
         if (!mappedAttrBuf[attrId])
             continue;
 
@@ -2080,7 +1974,7 @@ void COpenGLDriver::SAuxContext::COpenGLVAO::bindBuffers(   const COpenGLBuffer*
     lastValidated = beginStamp;
 }
 
-bool COpenGLDriver::SAuxContext::setActiveVAO(const COpenGLVAOSpec* const spec, const scene::IGPUMeshBuffer* correctOffsetsForXFormDraw)
+bool COpenGLDriver::SAuxContext::setActiveVAO(const COpenGLVAOSpec* const spec, const IGPUMeshBuffer* correctOffsetsForXFormDraw)
 {
     if (!spec)
     {
@@ -2103,37 +1997,37 @@ bool COpenGLDriver::SAuxContext::setActiveVAO(const COpenGLVAOSpec* const spec, 
             VAOMap.insert(it,CurrentVAO);
         }
 
-        #ifdef _DEBUG
+        #ifdef _IRR_DEBUG
             assert(!(CurrentVAO.second->getDebugHash()!=hashVal));
-        #endif // _DEBUG
+        #endif // _IRR_DEBUG
 
         extGlBindVertexArray(CurrentVAO.second->getOpenGLName());
     }
 
     if (correctOffsetsForXFormDraw)
     {
-        size_t offsets[scene::EVAI_COUNT] = {0};
-        memcpy(offsets,&spec->getMappedBufferOffset(scene::EVAI_ATTR0),sizeof(offsets));
-        for (size_t i=0; i<scene::EVAI_COUNT; i++)
+        size_t offsets[asset::EVAI_COUNT] = {0};
+        memcpy(offsets,&spec->getMappedBufferOffset(asset::EVAI_ATTR0),sizeof(offsets));
+        for (size_t i=0; i<asset::EVAI_COUNT; i++)
         {
-            if (!spec->getMappedBuffer((scene::E_VERTEX_ATTRIBUTE_ID)i))
+            if (!spec->getMappedBuffer((asset::E_VERTEX_ATTRIBUTE_ID)i))
                 continue;
 
-            if (spec->getAttribDivisor((scene::E_VERTEX_ATTRIBUTE_ID)i))
+            if (spec->getAttribDivisor((asset::E_VERTEX_ATTRIBUTE_ID)i))
             {
                 if (correctOffsetsForXFormDraw->getBaseInstance())
-                    offsets[i] += spec->getMappedBufferStride((scene::E_VERTEX_ATTRIBUTE_ID)i)*correctOffsetsForXFormDraw->getBaseInstance();
+                    offsets[i] += spec->getMappedBufferStride((asset::E_VERTEX_ATTRIBUTE_ID)i)*correctOffsetsForXFormDraw->getBaseInstance();
             }
             else
             {
                 if (correctOffsetsForXFormDraw->getBaseVertex())
-                    offsets[i] = int64_t(offsets[i])+int64_t(spec->getMappedBufferStride((scene::E_VERTEX_ATTRIBUTE_ID)i))*correctOffsetsForXFormDraw->getBaseVertex();
+                    offsets[i] = int64_t(offsets[i])+int64_t(spec->getMappedBufferStride((asset::E_VERTEX_ATTRIBUTE_ID)i))*correctOffsetsForXFormDraw->getBaseVertex();
             }
         }
-        CurrentVAO.second->bindBuffers(static_cast<const COpenGLBuffer*>(spec->getIndexBuffer()),reinterpret_cast<const COpenGLBuffer* const*>(spec->getMappedBuffers()),offsets,&spec->getMappedBufferStride(scene::EVAI_ATTR0));
+        CurrentVAO.second->bindBuffers(static_cast<const COpenGLBuffer*>(spec->getIndexBuffer()),reinterpret_cast<const COpenGLBuffer* const*>(spec->getMappedBuffers()),offsets,&spec->getMappedBufferStride(asset::EVAI_ATTR0));
     }
     else
-        CurrentVAO.second->bindBuffers(static_cast<const COpenGLBuffer*>(spec->getIndexBuffer()),reinterpret_cast<const COpenGLBuffer* const*>(spec->getMappedBuffers()),&spec->getMappedBufferOffset(scene::EVAI_ATTR0),&spec->getMappedBufferStride(scene::EVAI_ATTR0));
+        CurrentVAO.second->bindBuffers(static_cast<const COpenGLBuffer*>(spec->getIndexBuffer()),reinterpret_cast<const COpenGLBuffer* const*>(spec->getMappedBuffers()),&spec->getMappedBufferOffset(asset::EVAI_ATTR0),&spec->getMappedBufferStride(asset::EVAI_ATTR0));
 
     return true;
 }
@@ -2331,7 +2225,7 @@ void COpenGLDriver::SAuxContext::STextureStageCache::clear()
 }
 
 
-bool orderByMip(CImageData* a, CImageData* b)
+bool orderByMip(asset::CImageData* a, asset::CImageData* b)
 {
     return a->getSupposedMipLevel() < b->getSupposedMipLevel();
 }
@@ -2339,9 +2233,9 @@ bool orderByMip(CImageData* a, CImageData* b)
 
 //! returns a device dependent texture from a software surface (IImage)
 video::ITexture* COpenGLDriver::createDeviceDependentTexture(const ITexture::E_TEXTURE_TYPE& type, const uint32_t* size, uint32_t mipmapLevels,
-			const io::path& name, ECOLOR_FORMAT format)
+			const io::path& name, asset::E_FORMAT format)
 {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
     //if the max coords are not 0, then there is something seriously wrong
     switch (type)
     {
@@ -2362,7 +2256,7 @@ video::ITexture* COpenGLDriver::createDeviceDependentTexture(const ITexture::E_T
             assert(size[0]>0&&size[1]>0&&size[2]>0);
             break;
     }
-#endif // _DEBUG
+#endif // _IRR_DEBUG
     //do the texture creation flag mumbo jumbo of death.
     if (mipmapLevels==0)
     {
@@ -2429,7 +2323,7 @@ video::ITexture* COpenGLDriver::createDeviceDependentTexture(const ITexture::E_T
 
 
 //! Sets a material. All 3d drawing functions draw geometry now using this material.
-void COpenGLDriver::setMaterial(const SMaterial& material)
+void COpenGLDriver::setMaterial(const SGPUMaterial& material)
 {
     SAuxContext* found = getThreadContext_helper(false);
     if (!found)
@@ -2498,7 +2392,7 @@ void COpenGLDriver::setRenderStates3DMode()
 
 
 //! Can be called by an IMaterialRenderer to make its work easier.
-void COpenGLDriver::setBasicRenderStates(const SMaterial& material, const SMaterial& lastmaterial,
+void COpenGLDriver::setBasicRenderStates(const SGPUMaterial& material, const SGPUMaterial& lastmaterial,
 	bool resetAllRenderStates)
 {
 	// fillmode
@@ -2672,132 +2566,12 @@ void COpenGLDriver::setViewPort(const core::rect<int32_t>& area)
 	}
 }
 
-ITexture* COpenGLDriver::addTexture(const ITexture::E_TEXTURE_TYPE& type, const core::vector<CImageData*>& images, const io::path& name, ECOLOR_FORMAT format)
+ITexture* COpenGLDriver::createGPUTexture(const ITexture::E_TEXTURE_TYPE& type, const uint32_t* size, uint32_t mipmapLevels, asset::E_FORMAT format)
 {
-    if (!images.size())
-        return NULL;
-
-    //validate a bit
-    uint32_t initialMaxCoord[3] = {1,1,1};
-    uint32_t highestMip = 0;
-    ECOLOR_FORMAT candidateFormat = format;
-    for (core::vector<CImageData*>::const_iterator it=images.begin(); it!=images.end(); it++)
-    {
-        CImageData* img = *it;
-        if (!img||img->getColorFormat()==ECF_UNKNOWN)
-        {
-#ifdef _DEBUG
-            os::Printer::log("Very invalid mip-chain!", ELL_ERROR);
-#endif // _DEBUG
-            return NULL;
-        }
-
-        for (size_t i=0; i<3; i++)
-        {
-            const uint32_t& sideSize = img->getSliceMax()[i];
-            if (initialMaxCoord[i] < sideSize)
-                initialMaxCoord[i] = sideSize;
-        }
-        if (highestMip < img->getSupposedMipLevel())
-            highestMip = img->getSupposedMipLevel();
-
-        //figure out the format
-        if (format==ECF_UNKNOWN)
-        {
-            if (candidateFormat==ECF_UNKNOWN)
-                candidateFormat = img->getColorFormat();
-            else if (candidateFormat!=img->getColorFormat())
-            {
-#ifdef _DEBUG
-                os::Printer::log("Can't pick a default texture format if the mip-chain doesn't have a consistent one!", ELL_ERROR);
-#endif // _DEBUG
-                return NULL;
-            }
-        }
-    }
-    //haven't figured best format out
-    if (format==ECF_UNKNOWN)
-    {
-        if (candidateFormat==ECF_UNKNOWN)
-        {
-    #ifdef _DEBUG
-            os::Printer::log("Couldn't pick a texture format, entire mip-chain doesn't know!", ELL_ERROR);
-    #endif // _DEBUG
-            return NULL;
-        }
-        //else
-            //candidateFormat = candidateFormat;
-    }
-
-    //! Sort the mipchain!!!
-    core::vector<CImageData*> sortedMipchain(images);
-    std::sort(sortedMipchain.begin(),sortedMipchain.end(),orderByMip);
-
-    //figure out the texture type if not provided
-    ITexture::E_TEXTURE_TYPE actualType = type;
-    if (type>=ITexture::ETT_COUNT)
-    {
-        if (initialMaxCoord[2]>1)
-        {
-            //! with this little info I literally can't guess if you want a cubemap!
-            if (sortedMipchain.size()>1&&sortedMipchain.front()->getSliceMax()[2]==sortedMipchain.back()->getSliceMax()[2])
-                actualType = ITexture::ETT_2D_ARRAY;
-            else
-                actualType = ITexture::ETT_3D;
-        }
-        else if (initialMaxCoord[1]>1)
-        {
-            if (sortedMipchain.size()>1&&sortedMipchain.front()->getSliceMax()[1]==sortedMipchain.back()->getSliceMax()[1])
-                actualType = ITexture::ETT_1D_ARRAY;
-            else
-                actualType = ITexture::ETT_2D;
-        }
-        else
-        {
-            actualType = ITexture::ETT_2D; //should be ETT_1D but 2D is default since forever
-        }
-    }
-
-    //get out max texture size
-    uint32_t maxCoord[3] = {initialMaxCoord[0],initialMaxCoord[1],initialMaxCoord[2]};
-    for (core::vector<CImageData*>::const_iterator it=sortedMipchain.begin(); it!=sortedMipchain.end(); it++)
-    {
-        CImageData* img = *it;
-        if (img->getSliceMax()[0]>getMaxTextureSize(actualType)[0]||
-            (actualType==ITexture::ETT_2D||actualType==ITexture::ETT_1D_ARRAY||actualType==ITexture::ETT_CUBE_MAP)
-                &&img->getSliceMax()[1]>getMaxTextureSize(actualType)[1]||
-            (actualType==ITexture::ETT_3D||actualType==ITexture::ETT_2D_ARRAY||actualType==ITexture::ETT_CUBE_MAP_ARRAY)
-                &&img->getSliceMax()[2]>getMaxTextureSize(actualType)[2])
-        {
-#ifdef _DEBUG
-            os::Printer::log("Attemped to create a larger texture than supported (we should implement mip-chain dropping)!", ELL_ERROR);
-#endif // _DEBUG
-            return NULL;
-        }
-    }
-
-    video::ITexture* texture = createDeviceDependentTexture(actualType,maxCoord,highestMip ? (highestMip+1):0,name,candidateFormat);
-	addToTextureCache(texture);
-	if (texture)
-		texture->drop();
-
-    for (core::vector<CImageData*>::const_iterator it=sortedMipchain.begin(); it!=sortedMipchain.end(); it++)
-    {
-        CImageData* img = *it;
-        if (!img)
-            continue;
-
-        texture->updateSubRegion(img->getColorFormat(),img->getData(),img->getSliceMin(),img->getSliceMax(),img->getSupposedMipLevel(),img->getUnpackAlignment());
-    }
-
-    //has mipmap but no explicit chain
-    if (highestMip==0&&texture->hasMipMaps())
-        texture->regenerateMipMapLevels();
-
-    return texture;
+    return createDeviceDependentTexture(type, size, mipmapLevels, "", format);
 }
 
-IMultisampleTexture* COpenGLDriver::addMultisampleTexture(const IMultisampleTexture::E_MULTISAMPLE_TEXTURE_TYPE& type, const uint32_t& samples, const uint32_t* size, ECOLOR_FORMAT format, const bool& fixedSampleLocations)
+IMultisampleTexture* COpenGLDriver::addMultisampleTexture(const IMultisampleTexture::E_MULTISAMPLE_TEXTURE_TYPE& type, const uint32_t& samples, const uint32_t* size, asset::E_FORMAT format, const bool& fixedSampleLocations)
 {
     //check to implement later on  attachment of textures to FBO
     //if (!isFormatRenderable(glTex->getOpenGLInternalFormat()))
@@ -2881,22 +2655,6 @@ void COpenGLDriver::removeAllFrameBuffers()
 }
 
 
-//! Removes a texture from the texture cache and deletes it, freeing lot of memory.
-void COpenGLDriver::removeTexture(ITexture* texture)
-{
-	if (!texture)
-		return;
-
-	CNullDriver::removeTexture(texture);
-	// Remove this texture from CurrentTexture as well
-    SAuxContext* found = getThreadContext_helper(false);
-    if (!found)
-        return;
-
-	found->CurrentTexture.remove(texture);
-}
-
-
 //! Returns type of video driver
 E_DRIVER_TYPE COpenGLDriver::getDriverType() const
 {
@@ -2905,7 +2663,7 @@ E_DRIVER_TYPE COpenGLDriver::getDriverType() const
 
 
 //! returns color format
-ECOLOR_FORMAT COpenGLDriver::getColorFormat() const
+asset::E_FORMAT COpenGLDriver::getColorFormat() const
 {
 	return ColorFormat;
 }
@@ -3310,10 +3068,10 @@ void COpenGLDriver::bindTransformFeedback(ITransformFeedback* xformFeedback, SAu
 
     if (toContext->CurrentXFormFeedback)
     {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
         if (!toContext->CurrentXFormFeedback->isEnded())
             os::Printer::log("FIDDLING WITH XFORM FEEDBACK BINDINGS WHILE THE BOUND XFORMFEEDBACK HASN't ENDED!\n",ELL_ERROR);
-#endif // _DEBUG
+#endif // _IRR_DEBUG
         toContext->CurrentXFormFeedback->drop();
     }
 
@@ -3326,16 +3084,16 @@ void COpenGLDriver::bindTransformFeedback(ITransformFeedback* xformFeedback, SAu
 	}
     else
     {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
         if (!toContext->CurrentXFormFeedback->isEnded())
             os::Printer::log("WHY IS A NOT PREVIOUSLY BOUND XFORM FEEDBACK STARTED!?\n",ELL_ERROR);
-#endif // _DEBUG
+#endif // _IRR_DEBUG
         toContext->CurrentXFormFeedback->grab();
         extGlBindTransformFeedback(GL_TRANSFORM_FEEDBACK,toContext->CurrentXFormFeedback->getOpenGLHandle());
     }
 }
 
-void COpenGLDriver::beginTransformFeedback(ITransformFeedback* xformFeedback, const E_MATERIAL_TYPE& xformFeedbackShader, const scene::E_PRIMITIVE_TYPE& primType)
+void COpenGLDriver::beginTransformFeedback(ITransformFeedback* xformFeedback, const E_MATERIAL_TYPE& xformFeedbackShader, const asset::E_PRIMITIVE_TYPE& primType)
 {
     if (xformFeedback)
     {
@@ -3357,19 +3115,23 @@ void COpenGLDriver::beginTransformFeedback(ITransformFeedback* xformFeedback, co
 
 	switch (primType)
 	{
-		case scene::EPT_POINTS:
+		case asset::EPT_POINTS:
             found->CurrentXFormFeedback->setPrimitiveType(GL_POINTS);
             break;
-		case scene::EPT_LINE_STRIP:
-		case scene::EPT_LINE_LOOP:
+		case asset::EPT_LINE_STRIP:
+			_IRR_FALLTHROUGH;
+		case asset::EPT_LINE_LOOP:
 			os::Printer::log("Not using PROPER TRANSFORM FEEDBACK primitive type (only EPT_POINTS, EPT_LINES and EPT_TRIANGLES allowed!)!\n",ELL_ERROR);
-		case scene::EPT_LINES:
+            break;
+		case asset::EPT_LINES:
             found->CurrentXFormFeedback->setPrimitiveType(GL_LINES);
             break;
-		case scene::EPT_TRIANGLE_STRIP:
-		case scene::EPT_TRIANGLE_FAN:
+		case asset::EPT_TRIANGLE_STRIP:
+			_IRR_FALLTHROUGH;
+		case asset::EPT_TRIANGLE_FAN:
 			os::Printer::log("Not using PROPER TRANSFORM FEEDBACK primitive type (only EPT_POINTS, EPT_LINES and EPT_TRIANGLES allowed!)!\n",ELL_ERROR);
-		case scene::EPT_TRIANGLES:
+            break;
+		case asset::EPT_TRIANGLES:
             found->CurrentXFormFeedback->setPrimitiveType(GL_TRIANGLES);
             break;
 	}
@@ -3421,10 +3183,10 @@ void COpenGLDriver::endTransformFeedback()
         os::Printer::log("No Transform Feedback Object bound, possible redundant glEndTransform...!\n",ELL_ERROR);
         return;
     }
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
     if (!found->CurrentXFormFeedback->isActive())
         os::Printer::log("Ending an already paused transform feedback, the pause call is redundant!\n",ELL_ERROR);
-#endif // _DEBUG
+#endif // _IRR_DEBUG
     found->CurrentXFormFeedback->endFeedback();
 	found->XFormFeedbackRunning = false;
     ///In the interest of binding speed we wont release the CurrentXFormFeedback
@@ -3555,5 +3317,4 @@ IVideoDriver* createOpenGLDriver(const SIrrlichtCreationParameters& params,
 
 } // end namespace
 } // end namespace
-
 

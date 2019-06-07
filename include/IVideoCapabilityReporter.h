@@ -34,6 +34,9 @@ namespace video
             //! Supports tessellation shaders (always in OpenGL 4.3+, Vulkan Mobile GPUs don't)
             EDF_TESSELLATION_SHADER,
 
+			//! Whether we can download sub-areas of an IGPUTexture
+			EDF_GET_TEXTURE_SUB_IMAGE,
+
             //! Whether one cycle of read->write to the same pixel on an active FBO is supported (always in Vulkan)
             EDF_TEXTURE_BARRIER,
 
@@ -88,7 +91,7 @@ namespace video
 
 		//! Get the current color format of the color buffer
 		/** \return Color format of the color buffer. */
-		virtual ECOLOR_FORMAT getColorFormat() const =0;
+		virtual asset::E_FORMAT getColorFormat() const =0;
 
 		//! Get the graphics card vendor name.
 		virtual std::string getVendorInfo() =0;
@@ -112,6 +115,10 @@ namespace video
 
         virtual uint16_t retrieveDisplayRefreshRate() const { return 0u; }
 
+        virtual uint64_t getMaxUBOSize() const = 0;
+        virtual uint64_t getMaxSSBOSize() const = 0;
+        virtual uint64_t getMaxTBOSize() const = 0;
+        virtual uint64_t getMaxBufferSize() const = 0;
 	};
 
 } // end namespace video

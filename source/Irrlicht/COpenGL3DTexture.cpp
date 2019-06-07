@@ -16,7 +16,7 @@ namespace video
 
 COpenGL3DTexture::COpenGL3DTexture(GLenum internalFormat, const uint32_t* size, uint32_t mipmapLevels, const io::path& name) : COpenGLFilterableTexture(name,getOpenGLTextureType())
 {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	setDebugName("COpenGL3DTexture");
 #endif
     TextureSize[0] = size[0];
@@ -31,9 +31,9 @@ COpenGL3DTexture::COpenGL3DTexture(GLenum internalFormat, const uint32_t* size, 
 }
 
 
-bool COpenGL3DTexture::updateSubRegion(const ECOLOR_FORMAT &inDataColorFormat, const void* data, const uint32_t* minimum, const uint32_t* maximum, int32_t mipmap, const uint32_t& unpackRowByteAlignment)
+bool COpenGL3DTexture::updateSubRegion(const asset::E_FORMAT &inDataColorFormat, const void* data, const uint32_t* minimum, const uint32_t* maximum, int32_t mipmap, const uint32_t& unpackRowByteAlignment)
 {
-    bool sourceCompressed = isFormatCompressed(inDataColorFormat);
+    bool sourceCompressed = isBlockCompressionFormat(inDataColorFormat);
 
     bool destinationCompressed = COpenGLTexture::isInternalFormatCompressed(InternalFormat);
     if ((!destinationCompressed)&&sourceCompressed)

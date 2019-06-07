@@ -10,6 +10,7 @@
 #include "CWADReader.h"
 #include "os.h"
 #include "coreutil.h"
+#include "CLimitReadFile.h"
 
 namespace irr
 {
@@ -20,7 +21,7 @@ namespace io
 CArchiveLoaderWAD::CArchiveLoaderWAD( io::IFileSystem* fs)
 : FileSystem(fs)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("CArchiveLoaderWAD");
 	#endif
 }
@@ -93,7 +94,7 @@ void createDir ( const int8_t *full );
 CWADReader::CWADReader(IReadFile* file, bool ignoreCase, bool ignorePaths)
 : CFileList((file ? file->getFileName() : io::path("")), ignoreCase, ignorePaths), File(file)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("CWADReader");
 	#endif
 
@@ -230,11 +231,10 @@ IReadFile* CWADReader::createAndOpenFile(const io::path& filename)
 {
     auto it = findFile(Files.begin(),Files.end(),filename,false);
 	if (it!=Files.end())
-        return createLimitReadFile( it->FullName, File, it->Offset, it->Size );
+        return new CLimitReadFile(File, it->Offset, it->Size, it->FullName);
 
 	return 0;
 }
-
 
 } // end namespace io
 } // end namespace irr

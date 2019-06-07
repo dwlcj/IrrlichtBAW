@@ -539,7 +539,7 @@ private:
 CBurningShader_Raster_Reference::CBurningShader_Raster_Reference(CBurningVideoDriver* driver)
 : IBurningShader(driver)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("CBurningShader_Raster_Reference");
 	#endif
 }
@@ -587,7 +587,7 @@ void CBurningShader_Raster_Reference::pShader_1 ()
 */
 void CBurningShader_Raster_Reference::setMaterial ( const SBurningShaderMaterial &material )
 {
-	const video::SMaterial &m = material.org;
+	const video::SGPUMaterial &m = material.org;
 
 	uint32_t i;
 	uint32_t enable;

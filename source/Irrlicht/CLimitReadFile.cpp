@@ -15,7 +15,7 @@ CLimitReadFile::CLimitReadFile(IReadFile* alreadyOpenedFile, const size_t& pos,
 	: Filename(name), AreaStart(0), AreaEnd(0), Pos(0),
 	File(alreadyOpenedFile)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("CLimitReadFile");
 	#endif
 
@@ -112,12 +112,6 @@ size_t CLimitReadFile::getPos() const
 const io::path& CLimitReadFile::getFileName() const
 {
 	return Filename;
-}
-
-
-IReadFile* createLimitReadFile(const io::path& fileName, IReadFile* alreadyOpenedFile, const size_t& pos, const size_t& areaSize)
-{
-	return new CLimitReadFile(alreadyOpenedFile, pos, areaSize, fileName);
 }
 
 

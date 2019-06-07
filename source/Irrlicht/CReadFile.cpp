@@ -13,7 +13,7 @@ namespace io
 CReadFile::CReadFile(const io::path& fileName)
 : File(0), FileSize(0), Filename(fileName)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("CReadFile");
 	#endif
 
@@ -94,18 +94,6 @@ void CReadFile::openFile()
 const io::path& CReadFile::getFileName() const
 {
 	return Filename;
-}
-
-
-
-IReadFile* createReadFile(const io::path& fileName)
-{
-	CReadFile* file = new CReadFile(fileName);
-	if (file->isOpen())
-		return file;
-
-	file->drop();
-	return 0;
 }
 
 

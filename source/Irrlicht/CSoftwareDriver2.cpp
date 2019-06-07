@@ -332,14 +332,14 @@ struct program1
 }
 
 //! constructor
-CBurningVideoDriver::CBurningVideoDriver(const irr::SIrrlichtCreationParameters& params, io::IFileSystem* io, video::IImagePresenter* presenter)
-: CNullDriver(io, params.WindowSize), BackBuffer(0), Presenter(presenter),
+CBurningVideoDriver::CBurningVideoDriver(IrrlichtDevice* dev, const irr::SIrrlichtCreationParameters& params, io::IFileSystem* io, video::IImagePresenter* presenter)
+: CNullDriver(dev, io, params.WindowSize), BackBuffer(0), Presenter(presenter),
 	WindowId(0), SceneSourceRect(0),
 	RenderTargetTexture(0), RenderTargetSurface(0), CurrentShader(0),
 	 DepthBuffer(0), StencilBuffer ( 0 ),
 	 CurrentOut ( 12 * 2, 128 ), Temp ( 12 * 2, 128 )
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("CBurningVideoDriver");
 	#endif
 
@@ -671,7 +671,7 @@ const sVec4 CBurningVideoDriver::NDCPlane[6] =
 	core::setbit_cond( flag, (-v->Pos.y - v->Pos.w ) <= 0.f, 32 );
 
 */
-#ifdef IRRLICHT_FAST_MATH
+#ifdef __IRR_FAST_MATH
 
 REALINLINE uint32_t CBurningVideoDriver::clipToFrustumTest ( const s4DVertex * v  ) const
 {
@@ -733,7 +733,7 @@ REALINLINE uint32_t CBurningVideoDriver::clipToFrustumTest ( const s4DVertex * v
 	return flag;
 }
 
-#endif // _MSC_VER
+#endif // __IRR_FAST_MATH
 
 uint32_t CBurningVideoDriver::clipToHyperPlane ( s4DVertex * dest, const s4DVertex * source, uint32_t inCount, const sVec4 &plane )
 {
@@ -1634,7 +1634,7 @@ void CBurningVideoDriver::drawVertexPrimitiveList(const void* vertices, uint32_t
 
 
 //! sets a material
-void CBurningVideoDriver::setMaterial(const SMaterial& material)
+void CBurningVideoDriver::setMaterial(const SGPUMaterial& material)
 {
 	Material.org = material;
 
@@ -1943,7 +1943,7 @@ E_DRIVER_TYPE CBurningVideoDriver::getDriverType() const
 
 
 //! returns color format
-ECOLOR_FORMAT CBurningVideoDriver::getColorFormat() const
+asset::E_FORMAT CBurningVideoDriver::getColorFormat() const
 {
 	return BURNINGSHADER_COLOR_FORMAT;
 }
@@ -1953,36 +1953,6 @@ void CBurningVideoDriver::clearZBuffer()
 {
 	if (DepthBuffer)
 		DepthBuffer->clear();
-}
-
-
-
-//! .
-ITexture* CBurningVideoDriver::addTexture(const ITexture::E_TEXTURE_TYPE& type, const core::vector<CImageData*>& images, const io::path& name, ECOLOR_FORMAT format)
-{
-	if ( 0 == name.size () )
-		return 0;
-
-    if (format==ECF_UNKNOWN)
-        format = BURNINGSHADER_COLOR_FORMAT;
-
-    //better safe than sorry
-    if (type!=ITexture::ETT_2D&&type!=ITexture::ETT_COUNT)
-        return NULL;
-    if (format!=BURNINGSHADER_COLOR_FORMAT)
-        return NULL;
-
-    if (images.size()<1)
-        return NULL;
-
-	ITexture* t = new CSoftwareTexture2(images[0], name,
-                                    (getTextureCreationFlag(ETCF_CREATE_MIP_MAPS) ? CSoftwareTexture2::GEN_MIPMAP : 0 ) | CSoftwareTexture2::NP2_SIZE);
-	addToTextureCache(t);
-
-	if (t)
-		t->drop();
-
-	return t;
 }
 
 
@@ -2006,10 +1976,10 @@ namespace video
 {
 
 //! creates a video driver
-IVideoDriver* createBurningVideoDriver(const irr::SIrrlichtCreationParameters& params, io::IFileSystem* io, video::IImagePresenter* presenter)
+IVideoDriver* createBurningVideoDriver(IrrlichtDevice* dev, const irr::SIrrlichtCreationParameters& params, io::IFileSystem* io, video::IImagePresenter* presenter)
 {
 	#ifdef _IRR_COMPILE_WITH_BURNINGSVIDEO_
-	return new CBurningVideoDriver(params, io, presenter);
+	return new CBurningVideoDriver(dev, params, io, presenter);
 	#else
 	return 0;
 	#endif // _IRR_COMPILE_WITH_BURNINGSVIDEO_

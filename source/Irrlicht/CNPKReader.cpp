@@ -10,8 +10,9 @@
 
 #include "os.h"
 #include "coreutil.h"
+#include "CLimitReadFile.h"
 
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 #define IRR_DEBUG_NPK_READER
 #endif
 
@@ -37,7 +38,7 @@ namespace
 CArchiveLoaderNPK::CArchiveLoaderNPK( io::IFileSystem* fs)
 : FileSystem(fs)
 {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	setDebugName("CArchiveLoaderNPK");
 #endif
 }
@@ -106,7 +107,7 @@ bool CArchiveLoaderNPK::isALoadableFileFormat(io::IReadFile* file) const
 CNPKReader::CNPKReader(IReadFile* file, bool ignoreCase, bool ignorePaths)
 : CFileList((file ? file->getFileName() : io::path("")), ignoreCase, ignorePaths), File(file)
 {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	setDebugName("CNPKReader");
 #endif
 
@@ -223,9 +224,8 @@ IReadFile* CNPKReader::createAndOpenFile(const io::path& filename)
 {
     auto it = findFile(Files.begin(),Files.end(),filename,false);
 	if (it!=Files.end())
-        return createLimitReadFile( it->FullName, File, it->Offset, it->Size );
-
-	return nullptr;
+        return new CLimitReadFile(File, it->Offset, it->Size, it->FullName);
+    return nullptr;
 }
 
 void CNPKReader::readString(core::stringc& name)

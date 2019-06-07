@@ -17,7 +17,7 @@ namespace video
 
 COpenGLCubemapTexture::COpenGLCubemapTexture(GLenum internalFormat, const uint32_t* size, uint32_t mipmapLevels, const io::path& name) : COpenGLFilterableTexture(name,getOpenGLTextureType())
 {
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	setDebugName("COpenGLCubemapTexture");
 #endif
     TextureSize[0] = size[0];
@@ -31,9 +31,9 @@ COpenGLCubemapTexture::COpenGLCubemapTexture(GLenum internalFormat, const uint32
     ColorFormat = getColorFormatFromSizedOpenGLFormat(InternalFormat);
 }
 
-bool COpenGLCubemapTexture::updateSubRegion(const ECOLOR_FORMAT &inDataColorFormat, const void* data, const uint32_t* minimum, const uint32_t* maximum, int32_t mipmap, const uint32_t& unpackRowByteAlignment)
+bool COpenGLCubemapTexture::updateSubRegion(const asset::E_FORMAT &inDataColorFormat, const void* data, const uint32_t* minimum, const uint32_t* maximum, int32_t mipmap, const uint32_t& unpackRowByteAlignment)
 {
-    bool sourceCompressed = isFormatCompressed(inDataColorFormat);
+    bool sourceCompressed = isBlockCompressionFormat(inDataColorFormat);
 
     bool destinationCompressed = COpenGLTexture::isInternalFormatCompressed(InternalFormat);
     if ((!destinationCompressed)&&sourceCompressed)

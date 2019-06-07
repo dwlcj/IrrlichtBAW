@@ -6,6 +6,7 @@
 #include "irr/core/IReferenceCounted.h"
 #include "irr/video/SubAllocatedDataBuffer.h"
 #include "irr/video/StreamingGPUBufferAllocator.h"
+#include "IDriverFence.h"
 
 
 namespace irr
@@ -70,9 +71,9 @@ class StreamingTransientDataBufferST : protected SubAllocatedDataBuffer<core::He
         template<typename... Args>
         inline size_type    multi_place(const std::chrono::nanoseconds& maxWait, uint32_t count, const void* const* dataToPlace, size_type* outAddresses, const size_type* bytes, Args&&... args) noexcept
         {
-        #ifdef _DEBUG
+        #ifdef _IRR_DEBUG
             assert(getBuffer()->getBoundMemory());
-        #endif // _DEBUG
+        #endif // _IRR_DEBUG
             auto retval = multi_alloc(maxWait,count,outAddresses,bytes,std::forward<Args>(args)...);
             // fill with data
             for (uint32_t i=0; i<count; i++)

@@ -20,6 +20,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <utility>
+#include <iterator>
 
 #include "irr/core/memory/new_delete.h"
 
@@ -78,8 +80,6 @@ using queue = std::queue<T,Container>;
 template<typename T, class Container=deque<T> >
 using stack = std::stack<T,Container>;
 
-
-
 typedef std::mutex  mutex;
 // change to some derivation of FW_FastLock later
 typedef std::mutex  fast_mutex;
@@ -110,7 +110,7 @@ typedef std::mutex  fast_mutex;
 
 
 // memory debugging
-#if defined(_DEBUG) && defined(IRRLICHT_EXPORTS) && defined(_MSC_VER) && \
+#if defined(_IRR_DEBUG) && defined(IRRLICHT_EXPORTS) && defined(_MSC_VER) && \
 	(_MSC_VER > 1299) && !defined(_IRR_DONT_DO_MEMORY_DEBUGGING_HERE) && !defined(_WIN32_WCE)
 
 	#define CRTDBG_MAP_ALLOC

@@ -18,7 +18,7 @@ namespace io
 CArchiveLoaderMount::CArchiveLoaderMount( io::IFileSystem* fs)
 : FileSystem(fs)
 {
-	#ifdef _DEBUG
+	#ifdef _IRR_DEBUG
 	setDebugName("CArchiveLoaderMount");
 	#endif
 }
@@ -154,7 +154,7 @@ IReadFile* CMountPointReader::createAndOpenFile(const io::path& filename)
     auto found = findFile(Files.begin(),Files.end(),filename,false);
 	if (found != Files.end())
     {
-        return createReadFile(RealFileNames[found->ID]);
+        return Parent->createAndOpenFile(RealFileNames[found->ID]);
     }
 	
 	return nullptr;

@@ -4,6 +4,7 @@
 using namespace irr;
 using namespace video;
 using namespace scene;
+using namespace asset;
 using namespace ext;
 using namespace DebugDraw;
 
@@ -33,8 +34,8 @@ CDraw3DLine::CDraw3DLine(IVideoDriver* _driver)
     m_meshBuffer->setIndexCount(2);
 
     auto buff = m_driver->getDefaultUpStreamingBuffer()->getBuffer();
-    m_desc->mapVertexAttrBuffer(buff,EVAI_ATTR0,ECPA_THREE,ECT_FLOAT,sizeof(S3DLineVertex), offsetof(S3DLineVertex, Position[0]));
-    m_desc->mapVertexAttrBuffer(buff,EVAI_ATTR1,ECPA_FOUR,ECT_FLOAT,sizeof(S3DLineVertex), offsetof(S3DLineVertex, Color[0]));
+    m_desc->setVertexAttrBuffer(buff,EVAI_ATTR0,EF_R32G32B32_SFLOAT,sizeof(S3DLineVertex), offsetof(S3DLineVertex, Position[0]));
+    m_desc->setVertexAttrBuffer(buff,EVAI_ATTR1,EF_R32G32B32A32_SFLOAT,sizeof(S3DLineVertex), offsetof(S3DLineVertex, Color[0]));
     m_meshBuffer->setMeshDataAndFormat(m_desc);
     m_desc->drop();
 }
@@ -67,9 +68,7 @@ void CDraw3DLine::draw(
     m_driver->setMaterial(m_material);
     m_driver->drawMeshBuffer(m_meshBuffer);
 
-    auto fence = m_driver->placeFence();
-    upStreamBuff->multi_free(1u,(uint32_t*)&offset,(uint32_t*)&sizes,fence);
-    fence->drop();
+    upStreamBuff->multi_free(1u,(uint32_t*)&offset,(uint32_t*)&sizes,std::move(m_driver->placeFence()));
 }
 
 void CDraw3DLine::draw(const core::vector<std::pair<S3DLineVertex, S3DLineVertex>>& linesData)
@@ -93,9 +92,7 @@ void CDraw3DLine::draw(const core::vector<std::pair<S3DLineVertex, S3DLineVertex
     m_driver->setMaterial(m_material);
     m_driver->drawMeshBuffer(m_meshBuffer);
 
-    auto fence = m_driver->placeFence();
-    upStreamBuff->multi_free(1u,(uint32_t*)&offset,(uint32_t*)&sizes,fence);
-    fence->drop();
+    upStreamBuff->multi_free(1u,(uint32_t*)&offset,(uint32_t*)&sizes,std::move(m_driver->placeFence()));
 }
 
 CDraw3DLine::~CDraw3DLine()

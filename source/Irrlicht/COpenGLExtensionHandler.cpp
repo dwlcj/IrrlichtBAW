@@ -148,6 +148,11 @@ int32_t COpenGLExtensionHandler::reqUBOAlignment = 0;
 int32_t COpenGLExtensionHandler::reqSSBOAlignment = 0;
 int32_t COpenGLExtensionHandler::reqTBOAlignment = 0;
 
+uint64_t COpenGLExtensionHandler::maxUBOSize = 0;
+uint64_t COpenGLExtensionHandler::maxSSBOSize = 0;
+uint64_t COpenGLExtensionHandler::maxTBOSize = 0;
+uint64_t COpenGLExtensionHandler::maxBufferSize = 0;
+
 int32_t COpenGLExtensionHandler::minMemoryMapAlignment = 0;
 
 int32_t COpenGLExtensionHandler::MaxComputeWGSize[3]{0, 0, 0};
@@ -178,6 +183,7 @@ PFNGLENABLEIPROC COpenGLExtensionHandler::pGlEnablei = nullptr;
 PFNGLDISABLEIPROC COpenGLExtensionHandler::pGlDisablei = nullptr;
 PFNGLGETBOOLEANI_VPROC COpenGLExtensionHandler::pGlGetBooleani_v = nullptr;
 PFNGLGETFLOATI_VPROC COpenGLExtensionHandler::pGlGetFloati_v = nullptr;
+PFNGLGETINTEGER64VPROC COpenGLExtensionHandler::pGlGetInteger64v = nullptr;
 PFNGLGETINTEGERI_VPROC COpenGLExtensionHandler::pGlGetIntegeri_v = nullptr;
 PFNGLGETSTRINGIPROC COpenGLExtensionHandler::pGlGetStringi = nullptr;
 PFNGLPROVOKINGVERTEXPROC COpenGLExtensionHandler::pGlProvokingVertex = nullptr;
@@ -214,6 +220,13 @@ PFNGLTEXTURESTORAGE2DMULTISAMPLEEXTPROC COpenGLExtensionHandler::pGlTextureStora
 PFNGLTEXTURESTORAGE3DMULTISAMPLEEXTPROC COpenGLExtensionHandler::pGlTextureStorage3DMultisampleEXT = nullptr;
 PFNGLTEXTUREBUFFEREXTPROC COpenGLExtensionHandler::pGlTextureBufferEXT = nullptr;
 PFNGLTEXTUREBUFFERRANGEEXTPROC COpenGLExtensionHandler::pGlTextureBufferRangeEXT = nullptr;
+PFNGLGETTEXTURESUBIMAGEPROC COpenGLExtensionHandler::pGlGetTextureSubImage = nullptr;
+PFNGLGETCOMPRESSEDTEXTURESUBIMAGEPROC COpenGLExtensionHandler::pGlGetCompressedTextureSubImage = nullptr;
+PFNGLGETTEXTUREIMAGEPROC COpenGLExtensionHandler::pGlGetTextureImage = nullptr;
+PFNGLGETTEXTUREIMAGEEXTPROC COpenGLExtensionHandler::pGlGetTextureImageEXT = nullptr;
+PFNGLGETCOMPRESSEDTEXTUREIMAGEPROC COpenGLExtensionHandler::pGlGetCompressedTextureImage = nullptr;
+PFNGLGETCOMPRESSEDTEXTUREIMAGEEXTPROC COpenGLExtensionHandler::pGlGetCompressedTextureImageEXT = nullptr;
+PFNGLGETCOMPRESSEDTEXIMAGEPROC COpenGLExtensionHandler::pGlGetCompressedTexImage = nullptr;
 PFNGLTEXSUBIMAGE3DPROC COpenGLExtensionHandler::pGlTexSubImage3D = nullptr;
 PFNGLMULTITEXSUBIMAGE1DEXTPROC COpenGLExtensionHandler::pGlMultiTexSubImage1DEXT = nullptr;
 PFNGLMULTITEXSUBIMAGE2DEXTPROC COpenGLExtensionHandler::pGlMultiTexSubImage2DEXT = nullptr;
@@ -497,6 +510,9 @@ PFNGLTEXTUREBARRIERNVPROC COpenGLExtensionHandler::pGlTextureBarrierNV = nullptr
 PFNGLBLENDEQUATIONEXTPROC COpenGLExtensionHandler::pGlBlendEquationEXT = nullptr;
 PFNGLBLENDEQUATIONPROC COpenGLExtensionHandler::pGlBlendEquation = nullptr;
 
+PFNGLGETINTERNALFORMATIVPROC COpenGLExtensionHandler::pGlGetInternalformativ = nullptr;
+PFNGLGETINTERNALFORMATI64VPROC COpenGLExtensionHandler::pGlGetInternalformati64v = nullptr;
+
 PFNGLDEBUGMESSAGECONTROLPROC COpenGLExtensionHandler::pGlDebugMessageControl = nullptr;
 PFNGLDEBUGMESSAGECONTROLARBPROC COpenGLExtensionHandler::pGlDebugMessageControlARB = nullptr;
 PFNGLDEBUGMESSAGECALLBACKPROC COpenGLExtensionHandler::pGlDebugMessageCallback = nullptr;
@@ -587,7 +603,7 @@ void COpenGLExtensionHandler::dumpFramebufferFormats() const
 	const bool pixel_format_supported = (wglExtensions.find("WGL_ARB_pixel_format") != std::string::npos);
 	const bool multi_sample_supported = ((wglExtensions.find("WGL_ARB_multisample") != std::string::npos) ||
 		(wglExtensions.find("WGL_EXT_multisample") != std::string::npos) || (wglExtensions.find("WGL_3DFX_multisample") != std::string::npos) );
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	os::Printer::log("WGL_extensions", wglExtensions);
 #endif
 
@@ -803,7 +819,14 @@ void COpenGLExtensionHandler::initExtensions(bool stencilBuffer)
 	glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &reqUBOAlignment);
 	glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &reqSSBOAlignment);
 	glGetIntegerv(GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT, &reqTBOAlignment);
+
+    extGlGetInteger64v(GL_MAX_UNIFORM_BLOCK_SIZE, reinterpret_cast<GLint64*>(&maxUBOSize));
+    extGlGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, reinterpret_cast<GLint64*>(&maxSSBOSize));
+    extGlGetInteger64v(GL_MAX_TEXTURE_BUFFER_SIZE, reinterpret_cast<GLint64*>(&maxTBOSize));
+    maxBufferSize = std::max(maxUBOSize, std::max(maxSSBOSize, maxTBOSize));
+
 	glGetIntegerv(GL_MIN_MAP_BUFFER_ALIGNMENT, &minMemoryMapAlignment);
+
     extGlGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, MaxComputeWGSize);
     extGlGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, MaxComputeWGSize+1);
     extGlGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, MaxComputeWGSize+2);
@@ -959,7 +982,7 @@ void COpenGLExtensionHandler::initExtensions(bool stencilBuffer)
     //num=100000000u;
 	//glGetIntegerv(GL_MAX_ELEMENTS_INDICES,&num);
 #ifdef WIN32
-#ifdef _DEBUG
+#ifdef _IRR_DEBUG
 	if (FeatureAvailable[IRR_NVX_gpu_memory_info])
 	{
 		// undocumented flags, so use the RAW values
@@ -1008,6 +1031,7 @@ void COpenGLExtensionHandler::loadFunctions()
     pGlDisablei = (PFNGLDISABLEIPROC) IRR_OGL_LOAD_EXTENSION("glDisablei");
     pGlGetBooleani_v = (PFNGLGETBOOLEANI_VPROC) IRR_OGL_LOAD_EXTENSION("glGetBooleani_v");
     pGlGetFloati_v = (PFNGLGETFLOATI_VPROC) IRR_OGL_LOAD_EXTENSION("glGetFloati_v");
+    pGlGetInteger64v = (PFNGLGETINTEGER64VPROC)IRR_OGL_LOAD_EXTENSION("glGetInteger64v");
     pGlGetIntegeri_v = (PFNGLGETINTEGERI_VPROC) IRR_OGL_LOAD_EXTENSION("glGetIntegeri_v");
     pGlGetStringi = (PFNGLGETSTRINGIPROC) IRR_OGL_LOAD_EXTENSION("glGetStringi");
 
@@ -1092,6 +1116,13 @@ void COpenGLExtensionHandler::loadFunctions()
     pGlTextureBufferRangeEXT = (PFNGLTEXTUREBUFFERRANGEEXTPROC) IRR_OGL_LOAD_EXTENSION( "glTextureBufferRangeEXT");
     pGlTextureStorage2DMultisampleEXT = (PFNGLTEXTURESTORAGE2DMULTISAMPLEEXTPROC) IRR_OGL_LOAD_EXTENSION( "glTextureStorage2DMultisampleEXT");
     pGlTextureStorage3DMultisampleEXT = (PFNGLTEXTURESTORAGE3DMULTISAMPLEEXTPROC) IRR_OGL_LOAD_EXTENSION( "glTextureStorage3DMultisampleEXT");
+	pGlGetTextureSubImage = (PFNGLGETTEXTURESUBIMAGEPROC)IRR_OGL_LOAD_EXTENSION("glGetTextureSubImage");
+	pGlGetCompressedTextureSubImage = (PFNGLGETCOMPRESSEDTEXTURESUBIMAGEPROC)IRR_OGL_LOAD_EXTENSION("glGetCompressedTextureSubImage");
+	pGlGetTextureImage = (PFNGLGETTEXTUREIMAGEPROC)IRR_OGL_LOAD_EXTENSION("glGetTextureImage");
+	pGlGetTextureImageEXT = (PFNGLGETTEXTUREIMAGEEXTPROC)IRR_OGL_LOAD_EXTENSION("glGetTextureImageEXT");
+	pGlGetCompressedTextureImage = (PFNGLGETCOMPRESSEDTEXTUREIMAGEPROC)IRR_OGL_LOAD_EXTENSION("glGetCompressedTextureImage");
+	pGlGetCompressedTextureImageEXT = (PFNGLGETCOMPRESSEDTEXTUREIMAGEEXTPROC)IRR_OGL_LOAD_EXTENSION("glGetCompressedTextureImageEXT");
+	pGlGetCompressedTexImage = (PFNGLGETCOMPRESSEDTEXIMAGEPROC)IRR_OGL_LOAD_EXTENSION("glGetCompressedTexImage");
     pGlTexSubImage3D = (PFNGLTEXSUBIMAGE3DPROC) IRR_OGL_LOAD_EXTENSION( "glTexSubImage3D");
     pGlMultiTexSubImage1DEXT = (PFNGLMULTITEXSUBIMAGE1DEXTPROC) IRR_OGL_LOAD_EXTENSION( "glMultiTexSubImage1DEXT");
     pGlMultiTexSubImage2DEXT = (PFNGLMULTITEXSUBIMAGE2DEXTPROC) IRR_OGL_LOAD_EXTENSION( "glMultiTexSubImage2DEXT");
@@ -1381,6 +1412,9 @@ void COpenGLExtensionHandler::loadFunctions()
 	pGlBlendEquationEXT = (PFNGLBLENDEQUATIONEXTPROC) IRR_OGL_LOAD_EXTENSION("glBlendEquationEXT");
 	pGlBlendEquation = (PFNGLBLENDEQUATIONPROC) IRR_OGL_LOAD_EXTENSION("glBlendEquation");
 
+    pGlGetInternalformativ = (PFNGLGETINTERNALFORMATIVPROC) IRR_OGL_LOAD_EXTENSION("glGetInternalformativ");
+    pGlGetInternalformati64v = (PFNGLGETINTERNALFORMATI64VPROC) IRR_OGL_LOAD_EXTENSION("glGetInternalformati64v");
+
 	// get vsync extension
 	#if defined(WGL_EXT_swap_control) && !defined(_IRR_COMPILE_WITH_SDL_DEVICE_)
 		pWglSwapIntervalEXT = (PFNWGLSWAPINTERVALEXTPROC) IRR_OGL_LOAD_EXTENSION("wglSwapIntervalEXT");
@@ -1413,7 +1447,7 @@ bool COpenGLExtensionHandler::isDeviceCompatibile(core::vector<std::string>* fai
             os::Printer::log(error.c_str(), ELL_ERROR);
     }
 
-    if (!(FeatureAvailable[IRR_EXT_texture_filter_anisotropic]))
+    if (!(FeatureAvailable[IRR_EXT_texture_filter_anisotropic]||Version>=460))
     {
         retval =  false;
         std::string error = "No anisotropic filtering\n";
