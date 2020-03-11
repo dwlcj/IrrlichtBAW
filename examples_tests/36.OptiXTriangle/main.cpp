@@ -2,10 +2,11 @@
 #include <irrlicht.h>
 
 
-#include "../../ext/OptiX/OptiXManager.h"
+#include "../../ext/OptiX/Manager.h"
 
 // cuda and optix stuff
 #include "vector_types.h"
+#include "surface_types.h"
 #include "common.h"
 
 /**
@@ -48,7 +49,6 @@ int main()
 	if (!optixctx)
 		return 3;
 
-	uint8_t stackScratch[16u*1024u];
 #if 0
 	// Specify options for the build. We use default options for simplicity.
 	OptixAccelBuildOptions accel_options = {};
@@ -242,19 +242,15 @@ int main()
 		typedef ext::OptiX::SbtRecord<int>        MissSbtRecord;
 		typedef ext::OptiX::SbtRecord<int>        HitGroupSbtRecord;
 
-		auto createRecord = [&](cuda::CCUDAHandler::GraphicsAPIObjLink<video::IGPUBuffer>* outLink, const auto& recordData) -> CUdeviceptr
+		auto createRecord = [&](const auto& recordData) -> cuda::CCUDAHandler::GraphicsAPIObjLink<video::IGPUBuffer>
 		{
-			outLink->obj = core::smart_refctd_ptr<video::IGPUBuffer>(driver->createFilledDeviceLocalGPUBufferOnDedMem(sizeof(recordData),&recordData), core::dont_grab);
-			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::registerBuffer(outLink,CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY)))
+			cuda::CCUDAHandler::GraphicsAPIObjLink<video::IGPUBuffer> outLink = core::smart_refctd_ptr<video::IGPUBuffer>(driver->createFilledDeviceLocalGPUBufferOnDedMem(sizeof(recordData),&recordData), core::dont_grab);
+			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::registerBuffer(&outLink,CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY)))
 				return {};
-			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::cuda.pcuGraphicsMapResources(1u, &outLink->cudaHandle, stream)))
+			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::acquireAndGetPointers(&outLink,&outLink+1,stream)))
 				return {};
-			size_t tmp = sizeof(recordData);
-			CUdeviceptr cuptr;
-			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::cuda.pcuGraphicsResourceGetMappedPointer_v2(&cuptr, &tmp, outLink->cudaHandle)))
-				return {};
-			assert(cuptr%OPTIX_SBT_RECORD_ALIGNMENT==0ull);
-			return cuptr;
+			assert(outLink.asBuffer.pointer%OPTIX_SBT_RECORD_ALIGNMENT==0ull);
+			return outLink;
 		};
 
 
@@ -268,16 +264,21 @@ int main()
 		HitGroupSbtRecord hg_sbt;
 		optixSbtRecordPackHeader(hitgroup_prog_group, &hg_sbt);
 
-        sbt.raygenRecord                = createRecord(sbt_record_buffers+0,rg_sbt);
-        sbt.missRecordBase              = createRecord(sbt_record_buffers+1,ms_sbt);
+		sbt_record_buffers[0] = createRecord(rg_sbt);
+		sbt_record_buffers[1] = createRecord(ms_sbt);
+		sbt_record_buffers[2] = createRecord(hg_sbt);
+
+        sbt.raygenRecord                = sbt_record_buffers[0].asBuffer.pointer;
+        sbt.missRecordBase              = sbt_record_buffers[1].asBuffer.pointer;
         sbt.missRecordStrideInBytes     = sizeof( MissSbtRecord );
         sbt.missRecordCount             = 1;
-        sbt.hitgroupRecordBase          = createRecord(sbt_record_buffers+2,hg_sbt);
+        sbt.hitgroupRecordBase          = sbt_record_buffers[2].asBuffer.pointer;
         sbt.hitgroupRecordStrideInBytes = sizeof( HitGroupSbtRecord );
         sbt.hitgroupRecordCount         = 1;
     }
 
-	// run
+
+	// params and output
 	size_t bufferSizes[] = {sizeof(Params),sizeof(uchar4)*params.WindowSize.getArea()};
 	constexpr auto buffersToAcquireCount = sizeof(bufferSizes)/sizeof(*bufferSizes);
 	cuda::CCUDAHandler::GraphicsAPIObjLink<video::IGPUBuffer> buffers[2];
@@ -291,35 +292,50 @@ int main()
 	Params p;
 	p.image = {};
 	p.image_width = params.WindowSize.Width;
+
+	// screen output
+	cuda::CCUDAHandler::GraphicsAPIObjLink<video::ITexture> m_accumulation = driver->createGPUTexture(video::ITexture::ETT_2D, &params.WindowSize.Width, 1, asset::EF_R32G32B32A32_SFLOAT);
+	irr::video::IFrameBuffer* m_colorBuffer = driver->addFrameBuffer();
+	{
+		m_colorBuffer->attach(video::EFAP_COLOR_ATTACHMENT0, m_accumulation.getObject());
+	}
+
+	uint8_t stackScratch[1024];
     while (device->run())
     {
 		// raytrace part
 		{
-			CUdeviceptr cuptr[2] = {};
-			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::mapAndGetPointers(cuptr+1,buffers+1,buffers+buffersToAcquireCount,stream)))
+			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::acquireAndGetPointers(buffers,buffers+buffersToAcquireCount,stream)))
 				return 9;
-			
-			auto outputCUDAPtrRef = cuda::CCUDAHandler::cast_CUDA_ptr<uchar4>(cuptr[1]);
+
+			auto outputCUDAPtrRef = cuda::CCUDAHandler::cast_CUDA_ptr<uchar4>(buffers[1].asBuffer.pointer);
 			if (p.image!=outputCUDAPtrRef)
 			{
 				p.image = outputCUDAPtrRef;
-				driver->updateBufferRangeViaStagingBuffer(buffers[0].obj.get(),0u,sizeof(Params),&p);
+				if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::cuda.pcuMemcpyHtoDAsync_v2(buffers[0].asBuffer.pointer,&p,sizeof(Params),stream)))
+					return 10;
 			}
-			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::mapAndGetPointers(cuptr,buffers,buffers+1,stream)))
-				return 10;
-
-			optixLaunch( pipeline, stream, cuptr[0], sizeof(Params), &sbt, p.image_width, params.WindowSize.Height, /*depth=*/1 );
-
-			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::releaseResourcesToGraphics(stackScratch, buffers, buffers + buffersToAcquireCount, stream)))
+			optixLaunch( pipeline, stream, buffers[0].asBuffer.pointer, sizeof(Params), &sbt, params.WindowSize.Width, params.WindowSize.Height, /*depth=*/1 );
+			
+			if (!cuda::CCUDAHandler::defaultHandleResult(cuda::CCUDAHandler::releaseResourcesToGraphics(stackScratch,buffers,buffers+buffersToAcquireCount,stream)))
 				return 11;
 		}
 
-		video::COpenGLExtensionHandler::extGlGetNamedBufferSubData(static_cast<video::COpenGLBuffer*>(buffers[1].obj.get())->getOpenGLName(),0u,sizeof(stackScratch),stackScratch);
-
 		driver->beginScene(false, false);
+		
+		auto glbuf = static_cast<video::COpenGLBuffer*>(buffers[1].getObject());
+		auto gltex = static_cast<video::COpenGLFilterableTexture*>(m_accumulation.getObject());
+		video::COpenGLExtensionHandler::extGlBindBuffer(GL_PIXEL_UNPACK_BUFFER,glbuf->getOpenGLName());
+		video::COpenGLExtensionHandler::extGlTextureSubImage2D(gltex->getOpenGLName(),gltex->getOpenGLTextureType(),0,0,0, params.WindowSize.Width,params.WindowSize.Height,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);
+		video::COpenGLExtensionHandler::extGlBindBuffer(GL_PIXEL_UNPACK_BUFFER,0);
+
+		auto oldVP = driver->getViewPort();
+		driver->blitRenderTargets(m_colorBuffer, nullptr, false, false, {}, {}, true);
+		driver->setViewPort(oldVP);
 
 		driver->endScene();
     }
+	driver->removeFrameBuffer(m_colorBuffer);
 
 	// release all resources
 	/// optixAccelDestroy?
