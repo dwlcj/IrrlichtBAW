@@ -21,6 +21,9 @@ using namespace irr::scene;
 
 const std::string raygenShaderExtensions = R"======(
 #version 430 core
+//#define DISABLE_SUBGROUP_OPT
+#extension GL_NV_shader_thread_group: enable
+#extension GL_NV_shader_thread_shuffle: enable
 )======";
 
 const std::string lightStruct = R"======(
@@ -64,7 +67,7 @@ layout(binding = 1, std430) restrict readonly buffer CumulativeLightPDF
 
 layout(binding = 2, std430, row_major) restrict readonly buffer Lights
 {
-	SLight light[];
+	vec4 lights[];
 };
 
 
@@ -227,12 +230,42 @@ vec3 light_sample(out vec3 incoming, in uint sampleIx, in uint scramble, inout f
 
 	uint lightID = upper_bound(lightIDSample,uint(lightCDF.length()-1));
 
-	SLight light = light[lightID];
+	SLight light;
+	uint lightAddr = lightID*4;
+
+#if !defined(DISABLE_SUBGROUP_OPT) && defined(GL_NV_shader_thread_group) && defined(GL_NV_shader_thread_shuffle)
+	uint loIx = gl_ThreadInWarpNV & 3u;
+
+	vec4 tmp[4];
+	for (int i=0; i<4; i++)
+	{
+		uint baseOffset = shuffleNV(lightAddr,uint(i),4u);
+		tmp[i] = lights[baseOffset+loIx]; // l0 l0 l0 l0 l4 l4 l4 l4 l8 l8 l8 l8 l12 l12 l12 l12
+	}
+	for (int i=0; i<4; i++)
+	{
+		vec4 tmp2[4];
+		for (int j=0; j<4; j++)
+			tmp2[j] = shuffleNV(tmp[i],uint(j),4u);
+		if (loIx==i)
+		{
+			light.factor = tmp2[0].rgb;
+			light.vertices[0] = tmp2[1].rgb;
+			light.vertices[1] = tmp2[2].rgb;
+			light.vertices[2] = tmp2[3].rgb;
+		}
+	}
+#else
+	light.factor = lights[lightAddr+0].rgb;
+	light.vertices[0] = lights[lightAddr+1].rgb;
+	light.vertices[1] = lights[lightAddr+2].rgb;
+	light.vertices[2] = lights[lightAddr+3].rgb;
+#endif
 
 #define SHADOW_RAY_LEN 0.93
-	vec3 pointOnSurface = transpose(light.vertices)[0];
-	vec3 shortEdge = transpose(light.vertices)[1];
-	vec3 longEdge = transpose(light.vertices)[2];
+	vec3 pointOnSurface = light.vertices[0].rgb;
+	vec3 shortEdge = light.vertices[1].rgb;
+	vec3 longEdge = light.vertices[2].rgb;
 
 	lightSurfaceSample.x = sqrt(lightSurfaceSample.x);
 
