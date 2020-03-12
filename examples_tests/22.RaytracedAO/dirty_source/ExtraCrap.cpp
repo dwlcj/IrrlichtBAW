@@ -24,20 +24,12 @@ const std::string raygenShaderExtensions = R"======(
 )======";
 
 const std::string lightStruct = R"======(
-#define SLight_ET_ELLIPSOID	0u
-#define SLight_ET_TRIANGLE	1u
-#define SLight_ET_COUNT		2u
 struct SLight
 {
 	vec3 factor;
 	uint data0;
-	mat4x3 transform; // needs row_major qualifier
-	mat3 transformCofactors;
+	mat3 vertices;
 };
-uint SLight_extractType(in SLight light)
-{
-	return bitfieldExtract(light.data0,0,findMSB(SLight_ET_COUNT)+1);
-}
 )======";
 
 const std::string raygenShader = R"======(
@@ -238,54 +230,26 @@ vec3 light_sample(out vec3 incoming, in uint sampleIx, in uint scramble, inout f
 	SLight light = light[lightID];
 
 #define SHADOW_RAY_LEN 0.93
-	float factor; // 1.0/light_probability already baked into the light factor
-	switch (SLight_extractType(light))
-	{
-		case SLight_ET_ELLIPSOID:
-			lightSurfaceSample.x = lightSurfaceSample.x*2.0-1.0;
-			{
-				mat4x3 tform = light.transform;
-				float equator = lightSurfaceSample.y*2.0*kPI;
-				vec3 pointOnSurface = vec3(vec2(cos(equator),sin(equator))*sqrt(1.0-lightSurfaceSample.x*lightSurfaceSample.x),lightSurfaceSample.x);
-	
-				incoming = mat3(tform)*pointOnSurface+(tform[3]-position);
-				float incomingInvLen = inversesqrt(dot(incoming,incoming));
-				incoming *= incomingInvLen;
+	vec3 pointOnSurface = transpose(light.vertices)[0];
+	vec3 shortEdge = transpose(light.vertices)[1];
+	vec3 longEdge = transpose(light.vertices)[2];
 
-				maxT = SHADOW_RAY_LEN/incomingInvLen;
+	lightSurfaceSample.x = sqrt(lightSurfaceSample.x);
 
-				factor = 4.0*kPI; // compensate for the domain of integration
-				// don't normalize, length of the normal times determinant is very handy for differential area after a 3x3 matrix transform
-				vec3 negLightNormal = light.transformCofactors*pointOnSurface;
+	pointOnSurface += (shortEdge*(1.0-lightSurfaceSample.y)+longEdge*lightSurfaceSample.y)*lightSurfaceSample.x;
 
-				factor *= max(dot(negLightNormal,incoming),0.0)*incomingInvLen*incomingInvLen;
-			}
-			break;
-		default: // SLight_ET_TRIANGLE:
-			{
-				vec3 pointOnSurface = transpose(light.transformCofactors)[0];
-				vec3 shortEdge = transpose(light.transformCofactors)[1];
-				vec3 longEdge = transpose(light.transformCofactors)[2];
+	vec3 negLightNormal = cross(shortEdge,longEdge);
 
-				lightSurfaceSample.x = sqrt(lightSurfaceSample.x);
+	incoming = pointOnSurface-position;
+	float incomingInvLen = inversesqrt(dot(incoming,incoming));
+	incoming *= incomingInvLen;
 
-				pointOnSurface += (shortEdge*(1.0-lightSurfaceSample.y)+longEdge*lightSurfaceSample.y)*lightSurfaceSample.x;
+	maxT = SHADOW_RAY_LEN/incomingInvLen;
 
-				vec3 negLightNormal = cross(shortEdge,longEdge);
+	// 1.0/light_probability already baked into the light factor
+	float factor = 0.5*max(dot(negLightNormal,incoming),0.0)*incomingInvLen*incomingInvLen;
 
-				incoming = pointOnSurface-position;
-				float incomingInvLen = inversesqrt(dot(incoming,incoming));
-				incoming *= incomingInvLen;
-
-				maxT = SHADOW_RAY_LEN/incomingInvLen;
-
-				factor = 0.5*max(dot(negLightNormal,incoming),0.0)*incomingInvLen*incomingInvLen;
-			}
-			break;
-	}
-
-	if (factor<0.0) // TODO: FLT_MIN
-		alive = false;
+	alive = factor>=FLT_MIN; // or other minimum
 
 	return light.factor*factor;
 }
@@ -768,53 +732,54 @@ void Renderer::init(const SAssetBundle& meshes,
 				m_rrManager->makeRRShapes(rrShapeCache, &cpumb, (&cpumb)+1);
 			}
 			
+			auto canHandleAsAreaLight = [](decltype(shapeType) type) -> bool
+			{
+				switch (type)
+				{
+					case ext::MitsubaLoader::CElementShape::Type::SPHERE:
+						_IRR_FALLTHROUGH;
+					case ext::MitsubaLoader::CElementShape::Type::CYLINDER:
+						_IRR_FALLTHROUGH;
+					case ext::MitsubaLoader::CElementShape::Type::DISK:
+						_IRR_FALLTHROUGH;
+					case ext::MitsubaLoader::CElementShape::Type::RECTANGLE:
+						_IRR_FALLTHROUGH;
+					case ext::MitsubaLoader::CElementShape::Type::CUBE:
+						_IRR_FALLTHROUGH;
+					case ext::MitsubaLoader::CElementShape::Type::OBJ:
+						_IRR_FALLTHROUGH;
+					case ext::MitsubaLoader::CElementShape::Type::PLY:
+						_IRR_FALLTHROUGH;
+					case ext::MitsubaLoader::CElementShape::Type::SERIALIZED:
+						return true;
+					default:
+						break;
+				}
+				return false;
+			};
 			for (auto instance : instances)
 			{
 				auto cpumesh = static_cast<ICPUMesh*>(cpuit->get());
 				if (instance.emitter.type != ext::MitsubaLoader::CElementEmitter::Type::INVALID)
 				{
-					assert(instance.emitter.type==ext::MitsubaLoader::CElementEmitter::Type::AREA);
+					// you can't have a shape instance that is an emitter but is not an area emitter
+					if (!canHandleAsAreaLight(shapeType) || instance.emitter.type!=ext::MitsubaLoader::CElementEmitter::Type::AREA)
+					{
+					#ifdef _DEBUG
+						assert(false);
+					#endif
+						continue;
+					}
+
+					const auto cachedTform = SLight::CachedTransform(instance.tform);
 
 					uint32_t totalTriangleCount = 0u;
 					asset::IMeshManipulator::getPolyCount(totalTriangleCount, cpumesh);
+					if (!totalTriangleCount)
+						continue;
 
 					SLight light;
 					light.setFactor(instance.emitter.area.radiance);
-					light.analytical = SLight::CachedTransform(instance.tform);
-
-					bool bail = false;
-					switch (shapeType)
-					{
-						case ext::MitsubaLoader::CElementShape::Type::SPHERE:
-							light.type = SLight::ET_ELLIPSOID;
-							light.analytical.transformCofactors = -light.analytical.transformCofactors;
-							break;
-						case ext::MitsubaLoader::CElementShape::Type::CYLINDER:
-							_IRR_FALLTHROUGH;
-						case ext::MitsubaLoader::CElementShape::Type::DISK:
-							_IRR_FALLTHROUGH;
-						case ext::MitsubaLoader::CElementShape::Type::RECTANGLE:
-							_IRR_FALLTHROUGH;
-						case ext::MitsubaLoader::CElementShape::Type::CUBE:
-							_IRR_FALLTHROUGH;
-						case ext::MitsubaLoader::CElementShape::Type::OBJ:
-							_IRR_FALLTHROUGH;
-						case ext::MitsubaLoader::CElementShape::Type::PLY:
-							_IRR_FALLTHROUGH;
-						case ext::MitsubaLoader::CElementShape::Type::SERIALIZED:
-							light.type = SLight::ET_TRIANGLE;
-							if (!totalTriangleCount)
-								bail = true;
-							break;
-						default:
-						#ifdef _DEBUG
-							assert(false);
-						#endif
-							bail = true;
-							break;
-					}
-					if (bail)
-						continue;
 
 					auto addLight = [&instance,&cpumesh,&lightPDF,&lights,&lightRadiances](auto& newLight,float approxArea) -> void
 					{
@@ -826,40 +791,31 @@ void Renderer::init(const SAssetBundle& meshes,
 						lights.push_back(newLight);
 						lightRadiances.push_back(newLight.strengthFactor);
 					};
-					auto areaFromTriangulationAndMakeMeshLight = [&]() -> float
+
+					//double totalSurfaceArea = 0.0;
+					for (auto i=0u; i<meshBufferCount; i++)
 					{
-						double totalSurfaceArea = 0.0;
+						auto cpumb = cpumesh->getMeshBuffer(i);
+						reinterpret_cast<uint32_t&>(cpumb->getMaterial().userData) = lights.size();
 
-						uint32_t runningTriangleCount = 0u;
-						for (auto i=0u; i<meshBufferCount; i++)
+						uint32_t triangleCount = 0u;
+						asset::IMeshManipulator::getPolyCount(triangleCount,cpumb);
+						for (auto triID=0u; triID<triangleCount; triID++)
 						{
-							auto cpumb = cpumesh->getMeshBuffer(i);
-							reinterpret_cast<uint32_t&>(cpumb->getMaterial().userData) = lights.size();
+							auto triangle = asset::IMeshManipulator::getTriangleIndices(cpumb,triID);
 
-							uint32_t triangleCount = 0u;
-							asset::IMeshManipulator::getPolyCount(triangleCount,cpumb);
-							for (auto triID=0u; triID<triangleCount; triID++)
-							{
-								auto triangle = asset::IMeshManipulator::getTriangleIndices(cpumb,triID);
+							core::vectorSIMDf v[3];
+							for (auto k=0u; k<3u; k++)
+								v[k] = cpumb->getPosition(triangle[k]);
 
-								core::vectorSIMDf v[3];
-								for (auto k=0u; k<3u; k++)
-									v[k] = cpumb->getPosition(triangle[k]);
-
-								float triangleArea = NAN;
-								auto triLight = SLight::createFromTriangle(instance.emitter.area.radiance, light.analytical, v, &triangleArea);
-								if (light.type==SLight::ET_TRIANGLE)
-									addLight(triLight,triangleArea);
-								else
-									totalSurfaceArea += triangleArea;
-							}
+							float triangleArea = NAN;
+							auto triLight = SLight::createFromTriangle(instance.emitter.area.radiance, cachedTform, v, &triangleArea);
+							addLight(triLight,triangleArea);
+							//totalSurfaceArea += triangleArea;
 						}
-						return totalSurfaceArea;
-					};
+					}
 
-					auto totalArea = areaFromTriangulationAndMakeMeshLight();
-					if (light.type!=SLight::ET_TRIANGLE)
-						addLight(light,totalArea);
+					//addLightGroup(light,totalSurfaceArea);
 				}
 				else // no emissive
 				{
@@ -934,7 +890,8 @@ void Renderer::init(const SAssetBundle& meshes,
 			if (weight==0.f)
 				continue;
 			
-			weight *= light.computeFlux(NAN);
+			constexpr float FAKE_GLOBAL_EMITTER_AREA = 1.f;
+			weight *= light.computeFlux(FAKE_GLOBAL_EMITTER_AREA);
 			if (weight <= FLT_MIN)
 				continue;
 

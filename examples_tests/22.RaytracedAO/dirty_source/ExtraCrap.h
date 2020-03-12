@@ -71,14 +71,21 @@ class Renderer : public irr::core::IReferenceCounted, public irr::core::Interfac
 					Rejection:
 						Triangle List with a CDF for the whole list in PGAS, then analytical
 		**/
+		struct alignas(16) STriangleLightGroup
+		{
+			struct Triangle
+			{
+				irr::core::vectorSIMDf padding[3];
+			} triangle;
+
+			// we factor in the total surface area of the group into this
+			// TODO: pack `strengthFactor` into RGB19E7 and turn this into Structure of Arrays layout (uint+uvec2)
+			alignas(16) float strengthFactor[3];
+			uint32_t triangleCDFOffset;
+			uint32_t triangleCDFEnd;
+		};
 		struct alignas(16) SLight
 		{
-			enum E_TYPE : uint32_t
-			{
-				ET_ELLIPSOID,
-				ET_TRIANGLE,
-				ET_COUNT
-			};
 			struct CachedTransform
 			{
 				CachedTransform(const irr::core::matrix3x4SIMD& tform) : transform(tform)
@@ -92,35 +99,18 @@ class Renderer : public irr::core::IReferenceCounted, public irr::core::Interfac
 			};
 
 
-			SLight() : type(ET_COUNT) {}
-			SLight(const SLight& other) : type(other.type)
+			SLight() {}
+			SLight(const SLight& other)
 			{
 				std::copy(other.strengthFactor,other.strengthFactor+3u,strengthFactor);
-				if (type == ET_TRIANGLE)
-					std::copy(other.triangle.vertices, other.triangle.vertices+3u, triangle.vertices);
-				else
-				{
-					analytical.transform = other.analytical.transform;
-					analytical.transformCofactors = other.analytical.transformCofactors;
-				}
+				std::copy(other.triangle.vertices, other.triangle.vertices+3u, triangle.vertices);
 			}
 			~SLight() {}
 
 			inline SLight& operator=(SLight&& other)
 			{
 				std::swap_ranges(strengthFactor,strengthFactor+3u,other.strengthFactor);
-				auto a = other.analytical;
-				auto t = other.triangle;
-				if (type!=ET_TRIANGLE)
-					other.analytical = analytical;
-				else
-					other.triangle = triangle;
-				if (other.type)
-					analytical = a;
-				else
-					triangle = t;
-				std::swap(type, other.type);
-
+				std::swap_ranges(other.triangle.vertices,other.triangle.vertices+3u,triangle.vertices);
 				return *this;
 			}
 
@@ -144,9 +134,9 @@ class Renderer : public irr::core::IReferenceCounted, public irr::core::Interfac
 				return luma;
 			}
 
-			inline float computeAreaUnderTransform(irr::core::vectorSIMDf differentialElementCrossProduct) const
+			inline float computeAreaUnderTransform(const CachedTransform& precompTform,irr::core::vectorSIMDf differentialElementCrossProduct) const
 			{
-				analytical.transformCofactors.mulSub3x3WithNx1(differentialElementCrossProduct);
+				precompTform.transformCofactors.mulSub3x3WithNx1(differentialElementCrossProduct);
 				return irr::core::length(differentialElementCrossProduct).x;
 			}
 
@@ -155,29 +145,16 @@ class Renderer : public irr::core::IReferenceCounted, public irr::core::Interfac
 				const auto unitHemisphereArea = 2.f*irr::core::PI<float>();
 				const auto unitSphereArea = 2.f*unitHemisphereArea;
 
-				float lightFlux = unitHemisphereArea*getFactorLuminosity();
-				switch (type)
-				{
-					case ET_ELLIPSOID:
-						_IRR_FALLTHROUGH;
-					case ET_TRIANGLE:
-						lightFlux *= triangulizationArea;
-						break;
-					default:
-						assert(false);
-						break;
-				}
+				float lightFlux = unitHemisphereArea*getFactorLuminosity()*triangulizationArea;
 				return lightFlux;
 			}
 
 			static inline SLight createFromTriangle(const irr::core::vectorSIMDf& _strengthFactor, const CachedTransform& precompTform, const irr::core::vectorSIMDf* v, float* outArea=nullptr)
 			{
 				SLight triLight;
-				triLight.type = ET_TRIANGLE;
 				triLight.setFactor(_strengthFactor);
-				triLight.analytical = precompTform;
 
-				float triangleArea = 0.5f*triLight.computeAreaUnderTransform(irr::core::cross(v[1]-v[0],v[2]-v[0]));
+				float triangleArea = 0.5f*triLight.computeAreaUnderTransform(precompTform,irr::core::cross(v[1]-v[0],v[2]-v[0]));
 				if (outArea)
 					*outArea = triangleArea;
 
@@ -189,33 +166,18 @@ class Renderer : public irr::core::IReferenceCounted, public irr::core::Interfac
 				if (precompTform.transform.getPseudoDeterminant().x>0.f)
 					std::swap(triLight.triangle.vertices[2], triLight.triangle.vertices[1]);
 
-				// don't do any flux magic yet
-
 				return triLight;
 			}
 
 			//! different lights use different measures of their strength (this already has the reciprocal of the light PDF factored in)
 			alignas(16) float strengthFactor[3];
-			//! type is second member due to alignment issues
-			E_TYPE type;
-			//! useful for analytical shapes
-			union
+			uint32_t padding;
+			struct Triangle
 			{
-				CachedTransform analytical;
-				struct Triangle
-				{
-					irr::core::vectorSIMDf padding[3];
-					irr::core::vectorSIMDf vertices[3];
-				} triangle;
-			};
-			/*
-			union
-			{
-				AreaSphere sphere;
-			};
-			*/
+				irr::core::vectorSIMDf vertices[3];
+			} triangle;
 		};
-		static_assert(sizeof(SLight)==112u,"Can't keep alignment straight!");
+		static_assert(sizeof(SLight)==64u,"Can't keep alignment straight!");
 
 		// No 8k yet, too many rays to store
 		_IRR_STATIC_INLINE_CONSTEXPR uint32_t MaxResolution[2] = {7680/2,4320/2};
