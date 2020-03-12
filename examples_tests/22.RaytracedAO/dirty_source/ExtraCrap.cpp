@@ -21,7 +21,7 @@ using namespace irr::scene;
 
 const std::string raygenShaderExtensions = R"======(
 #version 430 core
-//#define DISABLE_SUBGROUP_OPT
+#define LIGHT_ELEMENT_COUNT 16
 #extension GL_NV_shader_thread_group: enable
 #extension GL_NV_shader_thread_shuffle: enable
 )======";
@@ -31,7 +31,7 @@ struct SLight
 {
 	vec3 factor;
 	uint data0;
-	mat3 vertices;
+	vec3 vertices[3];
 };
 )======";
 
@@ -65,9 +65,18 @@ layout(binding = 1, std430) restrict readonly buffer CumulativeLightPDF
 	uint lightCDF[];
 };
 
+#if LIGHT_ELEMENT_COUNT==1
+	#define LIGHT_DATA_TYPE SLight
+#elif LIGHT_ELEMENT_COUNT==4
+	#define LIGHT_DATA_TYPE vec4
+#elif LIGHT_ELEMENT_COUNT==16
+	#define LIGHT_DATA_TYPE float
+#else
+	#error "NPOT"
+#endif
 layout(binding = 2, std430, row_major) restrict readonly buffer Lights
 {
-	vec4 lights[];
+	LIGHT_DATA_TYPE lights[];
 };
 
 
@@ -231,41 +240,45 @@ vec3 light_sample(out vec3 incoming, in uint sampleIx, in uint scramble, inout f
 	uint lightID = upper_bound(lightIDSample,uint(lightCDF.length()-1));
 
 	SLight light;
-	uint lightAddr = lightID*4;
+#if LIGHT_ELEMENT_COUNT>1 && defined(GL_NV_shader_thread_group) && defined(GL_NV_shader_thread_shuffle)
+	uint lightAddr = lightID*LIGHT_ELEMENT_COUNT;
 
-#if !defined(DISABLE_SUBGROUP_OPT) && defined(GL_NV_shader_thread_group) && defined(GL_NV_shader_thread_shuffle)
-	uint loIx = gl_ThreadInWarpNV & 3u;
-
-	vec4 tmp[4];
-	for (int i=0; i<4; i++)
+	uint loIx = gl_ThreadInWarpNV & uint(LIGHT_ELEMENT_COUNT-1);
+	
+	LIGHT_DATA_TYPE tmp[LIGHT_ELEMENT_COUNT];
+	for (int i=0; i<LIGHT_ELEMENT_COUNT; i++)
 	{
-		uint baseOffset = shuffleNV(lightAddr,uint(i),4u);
-		tmp[i] = lights[baseOffset+loIx]; // l0 l0 l0 l0 l4 l4 l4 l4 l8 l8 l8 l8 l12 l12 l12 l12
+		uint baseOffset = shuffleNV(lightAddr,uint(i),LIGHT_ELEMENT_COUNT);
+		tmp[i] = lights[baseOffset+loIx];
 	}
-	for (int i=0; i<4; i++)
+	for (int i=0; i<LIGHT_ELEMENT_COUNT; i++)
 	{
-		vec4 tmp2[4];
-		for (int j=0; j<4; j++)
-			tmp2[j] = shuffleNV(tmp[i],uint(j),4u);
+		LIGHT_DATA_TYPE tmp2[LIGHT_ELEMENT_COUNT];
+		for (int j=0; j<LIGHT_ELEMENT_COUNT; j++)
+			tmp2[j] = shuffleNV(tmp[i],uint(j),LIGHT_ELEMENT_COUNT);
 		if (loIx==i)
 		{
-			light.factor = tmp2[0].rgb;
-			light.vertices[0] = tmp2[1].rgb;
-			light.vertices[1] = tmp2[2].rgb;
-			light.vertices[2] = tmp2[3].rgb;
+			#if LIGHT_ELEMENT_COUNT==16
+				light.factor = vec3(tmp2[0],tmp2[1],tmp2[2]);
+				light.vertices[0] = vec3(tmp2[4],tmp2[5],tmp2[6]);
+				light.vertices[1] = vec3(tmp2[8],tmp2[9],tmp2[10]);
+				light.vertices[2] = vec3(tmp2[12],tmp2[13],tmp2[14]);
+			#else
+				light.factor = tmp2[0].rgb;
+				light.vertices[0] = tmp2[1].rgb;
+				light.vertices[1] = tmp2[2].rgb;
+				light.vertices[2] = tmp2[3].rgb;
+			#endif
 		}
 	}
 #else
-	light.factor = lights[lightAddr+0].rgb;
-	light.vertices[0] = lights[lightAddr+1].rgb;
-	light.vertices[1] = lights[lightAddr+2].rgb;
-	light.vertices[2] = lights[lightAddr+3].rgb;
+	light = lights[lightID];
 #endif
 
 #define SHADOW_RAY_LEN 0.93
-	vec3 pointOnSurface = light.vertices[0].rgb;
-	vec3 shortEdge = light.vertices[1].rgb;
-	vec3 longEdge = light.vertices[2].rgb;
+	vec3 pointOnSurface = light.vertices[0];
+	vec3 shortEdge = light.vertices[1];
+	vec3 longEdge = light.vertices[2];
 
 	lightSurfaceSample.x = sqrt(lightSurfaceSample.x);
 
