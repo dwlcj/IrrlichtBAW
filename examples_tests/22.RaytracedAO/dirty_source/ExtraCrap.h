@@ -15,6 +15,62 @@
 class Renderer : public irr::core::IReferenceCounted, public irr::core::InterfaceUnmovable
 {
     public:
+		/**
+		Plan for lighting:
+
+		Option A) Path Guiding with Light Surface Sampling
+			Do path guiding with spatio-directional (directions are implicit from light IDs) acceleration structure.
+			Obviously the budgets for directions are low, so we might need to only track important lights and group them.
+
+			Group lights should be made out of primitives like triangles, and we need a heuristic for picking a primitive from
+			the light group surface that is less likely to be occluded or backfacing/at an angle as well as overall brighter.
+
+			Then NEE uses path guiding, picks a nice light-group, then picks primitive and finally does spherical sampling on the primitive.
+			4D samples needed
+
+			BRDF sampling just samples the BRDF analytically, uses Closest Hit and proceeds classically.
+
+			PROS: We know the point on the light we're supposed to hit, so we can do an AnyHit-only ray that is a lot cheaper.
+			We only need a bit/boolean to know if we've hit the light, we know the light color up-front (or we don't need to fetch it in a dependent way).
+			Env-Light becomes just a triangularized grid which is warped according to env-map CDF.
+			CONS: Unused or bad quality samples.
+
+		Option B) Path Guiding with Rejection Sampling
+			Do path guiding with spatio-directional (directions are implicit from light IDs) acceleration structure, could be with complete disregard for light NEE.
+			Then it would be better suited to integration of long light paths or VCM / BDPT with short eye-paths and long light paths. 
+
+			We group lights into groups again, except that each group gets a Bounding Volume, either a Cube or a Sphere (whichever fits best =
+			= gives better hit ratio with rejection sampling), only uniform scaling is allowed. BV could be a triangular convex hull also.
+			
+			Then NEE does perfect spherical sampling of the bounding volume. If hit ratio > 50% (or >73% for comparison against advanced surface heuristics) then it will
+			perform better than Surface Sampling.
+			3D-2D samples needed
+
+			OPTIMIZATION: Could possibly shoot an AnyHit to the front of the convex hull volume, and then ClosestHit between the front and back.
+
+			BRDF sampling just samples the BSDF analytically (or gives up and samples only the path-guiding AS), uses Closest Hit and proceeds classically.
+
+			There's essentially 3 ways to generate samples: NEE with PGAS (discrete directions), NEE with PGAS (for all incoming lights), BSDF Analytical.
+
+			PROS: Probably a much better sample generation strategy, might clean up a lot of noise.
+			CONS: We don't know the point on the surface we are going to hit (could be any of multiple points for a concave light), so we cannot cast a fixed length ray.
+			We need to cast a ray to the furthest back side of the Bounding Volume, and it cannot be an just an AnyHit ray, it needs to have a ClosestHit shader that will compare
+			if the hit instanceID==lightGroupID. It can probably be optimized so that it uses a different shadow-only + light-compare SBT. So it may take a lot longer to compute a sample.
+
+		CONCLUSION:
+			We'll either be generating samples:
+				A) From PGAS CDF
+					No special light structure, just PGAS + GAS.
+				B) Spherical sampling of Ellipsoids
+					Ellipsoid List with a CDF for the whole list in PGAS, then analytical form ellipsoid scale, orientation and position
+				C) Spherical sampling of Rectangles
+					Paired Rectangle List (front + back so we don't generate samples on back-faces) with a CDF for the whole list in PGAS, then analytical
+				D) Spherical sampling of Triangles
+					Surface:
+						Triangle group list in PGAS, then CDF for the triangles in the group, then analytical
+					Rejection:
+						Triangle List with a CDF for the whole list in PGAS, then analytical
+		**/
 		struct alignas(16) SLight
 		{
 			enum E_TYPE : uint32_t
