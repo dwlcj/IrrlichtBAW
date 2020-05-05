@@ -13,7 +13,7 @@ namespace irr
 namespace video
 {
 
-
+// property pool is inherently single threaded
 class IPropertyPool : public core::IReferenceCounted
 {
 	public:
@@ -42,6 +42,7 @@ class IPropertyPool : public core::IReferenceCounted
         }
 
 
+        _IRR_STATIC_INLINE_CONSTEXPR auto MinimumPropertyAlignment = sizeof(uint32_t);
         _IRR_STATIC_INLINE_CONSTEXPR auto MaxPropertiesPerCS = 15;
         struct PipelineKey
         {
@@ -54,7 +55,7 @@ class IPropertyPool : public core::IReferenceCounted
                 {
                     if (PropertySizes[i]>PropertySizes[i-1])
                         return 0u;
-                    if (!PropertySizes[i])
+                    if (!PropertySizes[i] || !core::is_aligned_to(PropertySizes[i],MinimumPropertyAlignment))
                         return i;
                 }
 
@@ -91,30 +92,33 @@ class IPropertyPool : public core::IReferenceCounted
         }
 
         //
-        inline core::smart_refctd_ptr<IDriverFence> uploadProperties(const uint32_t* indicesBegin, const uint32_t* indicesEnd, std::initializer_list<const void*> data)
+        inline core::smart_refctd_ptr<IDriverFence> uploadProperties(const uint32_t* indicesBegin, const uint32_t* indicesEnd, std::initializer_list<const void*> data, IGPUPipelineCache* pipelineCache = nullptr)
         {
             return nullptr;
         }
 
         //
-        inline core::smart_refctd_ptr<IDriverFence> addProperties(uint32_t* outIndicesBegin, uint32_t* outIndicesEnd, std::initializer_list<const void*> data)
+        inline core::smart_refctd_ptr<IDriverFence> addProperties(uint32_t* outIndicesBegin, uint32_t* outIndicesEnd, std::initializer_list<const void*> data, IGPUPipelineCache* pipelineCache = nullptr)
         {
             if (!allocateProperties(outIndicesBegin,outIndicesEnd))
                 return nullptr;
 
-            return uploadProperties(outIndicesBegin,outIndicesEnd,data);
+            return uploadProperties(outIndicesBegin,outIndicesEnd,data,pipelineCache);
         }
 
         //
-        virtual core::smart_refctd_ptr<IDriverFence> downloadProperties(const uint32_t* indicesBegin, const uint32_t* indicesEnd, std::initializer_list<void*> data)
+        virtual core::smart_refctd_ptr<IDriverFence> downloadProperties(const uint32_t* indicesBegin, const uint32_t* indicesEnd, std::initializer_list<void*> data, IGPUPipelineCache* pipelineCache = nullptr)
         {
             const auto passCount = getPipelineCount();
             core::smart_refctd_ptr<IGPUComputePipeline> passes[passCount];
+            getPipelines(passes, true, true, pipelineCache);
+            //
             for (auto pass=0u; pass<passCount; pass++)
             {
-                //driver->bindComputePipeline();
-                //driver->bindDescriptorSets(EPBP_COMPUTE,layout,0u,1u,&set,&offsets);
-                //driver->dispatch(getWorkGroupSizeX(propertiesThisPass),propertiesThisPass,1u);
+                driver->bindComputePipeline(passes[pass]);
+                const auto propertiesThisPass = getPropertiesPerPass(pass);
+                driver->bindDescriptorSets(EPBP_COMPUTE,passes[pass]->getLayout(),0u,1u,&set,offsetArrays);
+                driver->dispatch(getWorkGroupSizeX(propertiesThisPass),propertiesThisPass,1u);
             }
             return nullptr;
         }
@@ -137,7 +141,20 @@ class IPropertyPool : public core::IReferenceCounted
             indexAllocator.reset();
         }
 
+        //
+        static const char* CommonShaderSource;
+
     protected:
+        //
+        virtual uint32_t getPropertiesPerPass(uint32_t passID) const = 0;
+
+        //
+        constexpr auto IdealWorkGroupSize = 256u;
+        static inline uint32_t getWorkGroupSizeX(uint32_t propertyCount)
+        {
+            return core::roundDownToPoT(IdealWorkGroupSize/propertyCount);
+        }
+
         #define PROPERTY_ADDRESS_ALLOCATOR_ARGS 1u,capacity,1u
         static inline getReservedSize(uint32_t capacity)
         {
@@ -149,28 +166,51 @@ class IPropertyPool : public core::IReferenceCounted
                     PropertyAddressAllocator(reserved,0u,0u,PROPERTY_ADDRESS_ALLOCATOR_ARGS)
                 )
         {
+            auto stateAndLock = sharedCopyState.getData(driver);
+            descriptorSet = driver->createGPUDescriptorSet(stateAndLock.first.getPipelineLayout());
+
+            SBufferInfo info[2];
+            info.offset = ? ;
+            info.size = ? ;
+            SWriteDescriptorSet write;
+            write.dstSet = descriptorSet.get();
+            write.arrayElement = 0;
+            write.count = 1;
+            // mutable
+            write.binding = 0;
+            write.descriptorType = EDT_STORAGE_BUFFER_DYNAMIC;
+            write.info = 0;
+            driver->writeDescriptorSet(write);
         }
         #undef PROPERTY_ADDRESS_ALLOCATOR_ARGS
 
         virtual ~IPropertyPool() {}
 
         //
-        constexpr auto IdealWorkGroupSize = 256u;
-        static inline uint32_t getWorkGroupSizeX(uint32_t propertyCount)
-        {
-            return core::roundDownToPoT(IdealWorkGroupSize/propertyCount);
-        }
-
-
         IVideoDriver* driver;
         asset::SBufferRange<IGPUBuffer>&& memoryBlock;
         PropertyAddressAllocator indexAllocator;
+        core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 
         // waiting for @Hazard
         template<typename Key, typename Value>
         using LRUCache = core::unordered_map<Key,Value>;
 
-        static LRUCache<PipelineKey,core::smart_refctd_ptr<IGPUComputePipeline>> copyPipelines;
+        //
+        class SharedState
+        {
+            public:
+                SharedState() : pipelineLayout(), pipelines() {}
+                ~SharedState() {}
+
+                IGPUPipelineLayout* getPipelineLayout();
+
+                LRUCache<PipelineKey,core::smart_refctd_ptr<IGPUComputePipeline> > pipelines;
+            protected:
+                core::smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
+        };
+        //
+        static core::FactoryAndStaticSafeMT<SharedState> sharedCopyState;
 };
 
 
@@ -205,3 +245,4 @@ class IMeshSceneNodeInstanced : public ISceneNode
     inline const bool& getBBoxUpdateMode() { return wantBBoxUpdate; }
 };
 */
+

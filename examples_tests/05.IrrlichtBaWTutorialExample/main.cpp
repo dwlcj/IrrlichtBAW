@@ -23,7 +23,6 @@ int main()
 		 about driver being used, size of window, stencil buffer or depth buffer.
 		 Used to create a device.
 	*/
-
 	irr::SIrrlichtCreationParameters params;
 	params.Bits = 24; 
 	params.ZBufferBits = 24;
@@ -86,6 +85,59 @@ int main()
 	assert(!images_bundle.isEmpty());
 	auto image = images_bundle.getContents().first[0];
 	auto image_raw = static_cast<asset::ICPUImage*>(image.get());
+
+	{
+		IImage::SCreationParams params = image_raw->getCreationParameters();
+		params.mipLevels = IImage::calculateMaxMipLevel(params.extent, params.type);
+		auto image_clone = asset::ICPUImage::create(std::move(params));
+		{
+			const auto origRegions = image_raw->getRegions();
+			auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IImage::SBufferCopy> >(origRegions.size());
+			std::copy(origRegions.begin(), origRegions.end(), regions->begin());
+			image_clone->setBufferAndRegions(core::smart_refctd_ptr<ICPUBuffer>(image_raw->getBuffer()), regions);
+
+			CFlattenRegionsImageFilter::state_type flatten;
+			flatten.preFill = true; // false if you want it to perform faster
+			flatten.fillValue.asUByte[0] = 255;
+			flatten.fillValue.asUByte[1] = 0;
+			flatten.fillValue.asUByte[2] = 255;
+			flatten.fillValue.asUByte[3] = 255;
+			flatten.inImage = image_clone.get();
+
+			CFlattenRegionsImageFilter::execute(&flatten);
+
+			image_clone = std::move(flatten.outImage);
+		}
+
+		using MipMapFilter = CMipMapGenerationImageFilter<CMitchellImageFilterKernel<>>;
+		MipMapFilter::state_type genmips;
+		genmips.baseLayer = 0u;
+		genmips.layerCount = params.arrayLayers;
+		genmips.startMipLevel = 1u;
+		genmips.endMipLevel = params.mipLevels;
+		genmips.inOutImage = image_clone.get();
+		genmips.scratchMemoryByteSize = MipMapFilter::getRequiredScratchByteSize(&genmips);
+		//! extras
+		for (auto i=0; i<3; i++)
+			genmips.axisWraps[i] = ISampler::ETC_CLAMP_TO_EDGE;
+		// genmips.borderColor = ;
+		//! optionals
+		//genmips.alphaSemantic = ;
+		//genmips.alphaRefValue = ;
+		auto before = std::chrono::high_resolution_clock::now();
+		genmips.scratchMemory = reinterpret_cast<uint8_t*>(_IRR_ALIGNED_MALLOC(genmips.scratchMemoryByteSize,_IRR_SIMD_ALIGNMENT));
+		MipMapFilter::execute(&genmips);
+		_IRR_ALIGNED_FREE(genmips.scratchMemory);
+		auto elapsed = std::chrono::high_resolution_clock::now()-before;
+		printf("Taken %lld ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+
+		//asset::IAssetWriter::SAssetWriteParams wp(image_clone.get());
+		//assetManager->writeAsset("mipped.dds",wp);
+
+		// replace image with clone
+		image_raw = image_clone.get();
+		image = std::move(image_clone);
+	}
 
 	/*
 		Creating view parameters to create cpu image view asset
@@ -222,7 +274,7 @@ int main()
 			IGPUDescriptorSet::SDescriptorInfo info;
 			{
 				info.desc = std::move(gpuImageView);
-				ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETBC_FLOAT_OPAQUE_BLACK,ISampler::ETF_LINEAR,ISampler::ETF_LINEAR,ISampler::ESMM_LINEAR,0u,false,ECO_ALWAYS };
+				ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETBC_FLOAT_OPAQUE_BLACK,ISampler::ETF_LINEAR,ISampler::ETF_LINEAR,ISampler::ESMM_LINEAR,0u,false,ECO_ALWAYS,0.f,-1000.f,1000.f };
 				info.image = { driver->createGPUSampler(samplerParams),EIL_SHADER_READ_ONLY_OPTIMAL };
 			}
 			write.info = &info;

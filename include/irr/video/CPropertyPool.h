@@ -88,7 +88,7 @@ class CPropertyPool : public IPropertyPool
         }
 
 	protected:
-        inline uint32_t getPropertiesPerPass(uint32_t passID)
+        inline uint32_t getPropertiesPerPass(uint32_t passID) const override
         {
             if (passID!=(getPipelineCount()-1u))
                 return maxPipelinesPerPass;
@@ -105,7 +105,7 @@ class CPropertyPool : public IPropertyPool
         }
 
         CPropertyPool(IVideoDriver* _driver, core::SBufferRange<IGPUBuffer>&& _memoryBlock, allocator<uint8_t>&& _alloc, uint32_t capacity, void* reserved)
-            : IPropertyPool(_driver,std::move(_memoryBlock),capacity,reserved), maxPipelinesPerPass((16/*driver->getMaxSSBOBindings(ESS_COMPUTE)*/-1)/2u), alloc(std::move(_alloc))
+            : IPropertyPool(_driver,std::move(_memoryBlock),capacity,reserved), maxPipelinesPerPass((driver->getMaxSSBOBindings(/*ESS_COMPUTE*/)-1)/2u), alloc(std::move(_alloc))
         {
             // fill out redirects
             std::pair<uint32_t,uint32_t> tmp[maxPipelinesPerPass];
@@ -136,6 +136,7 @@ class CPropertyPool : public IPropertyPool
         allocator<uint8_t> alloc;
 
         _IRR_STATIC_INLINE_CONSTEXPR std::array<uint32_t,PropertyCount+1u> PropertySizes = {sizeof(Properties)... , 0u};
+        static_assert(core::is_aligned_to(sizeof(Properties),MinimumPropertyAlignment) && ... , "One of the Property types is not aligned to MinimumPropertyAlignment");
 };
 
 

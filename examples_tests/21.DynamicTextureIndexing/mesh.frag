@@ -2,7 +2,7 @@
 
 #define MAX_DRAWS 15
 #define MAX_TEXTURES_PER_DRAW 2
-layout(binding=0) uniform sampler2D textures[MAX_DRAWS*MAX_TEXTURES_PER_DRAW];
+layout(set = 0, binding = 0) uniform sampler2D textures[MAX_DRAWS*MAX_TEXTURES_PER_DRAW];
 
 layout(location = 0) in flat uint DrawID;
 layout(location = 1) in vec2 TexCoord;

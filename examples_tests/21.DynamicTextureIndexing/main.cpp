@@ -1,82 +1,58 @@
 #define _IRR_STATIC_LIB_
 #include <irrlicht.h>
 
-#include "../ext/ScreenShot/ScreenShot.h"
 #include "../common/QToQuitEventReceiver.h"
-#include "../../source/Irrlicht/COpenGLVAOSpec.h"
 
 using namespace irr;
 using namespace core;
+using namespace asset;
+using namespace video;
 
 
-class SimpleCallBack : public video::IShaderConstantSetCallBack
-{
-public:
-	SimpleCallBack() {}
-
-	virtual void PostLink(video::IMaterialRendererServices* services, const video::E_MATERIAL_TYPE& materialType, const core::vector<video::SConstantLocationNamePair>& constants)
-	{
-	}
-
-	virtual void OnSetConstants(video::IMaterialRendererServices* services, int32_t userData)
-	{
-		services->setShaderConstant(services->getVideoDriver()->getTransform(video::EPTS_PROJ_VIEW_WORLD).pointer(), 0u, video::ESCT_FLOAT_MAT4, 1);
-	}
-
-	virtual void OnUnsetMaterial() {}
-};
-
-
-
-struct DrawElementsIndirectCommand
+struct DrawData
 {
 	uint32_t count;
 	uint32_t instanceCount;
 	uint32_t firstIndex;
 	uint32_t baseVertex;
 	uint32_t baseInstance;
+	core::matrix3x4SIMD instanceTransform;
 };
 
 struct IndirectDrawInfo
 {
-	// maybe a unique transform in the future
+	core::smart_refctd_ptr<IGPURenderpassIndependentPipeline> pipeline;
 
-	video::SGPUMaterial material;
-	core::smart_refctd_ptr<asset::IMeshDataFormatDesc<video::IGPUBuffer> > pipeline;
-	asset::E_PRIMITIVE_TYPE primitiveType;
-	asset::E_INDEX_TYPE indexType;
-
-	core::vector<DrawElementsIndirectCommand> indirectDrawData;
-	core::smart_refctd_ptr<video::IGPUBuffer> indirectDrawBuffer;
+	core::vector<DrawData> indirectDrawData;
+	core::smart_refctd_ptr<IGPUBuffer> indirectDrawBuffer;
 
 	_IRR_STATIC_INLINE_CONSTEXPR uint32_t MaxTexturesPerDraw = 2u; // need full bindless (by handle) to handle more than 32 textures
-	core::vector<std::array<core::smart_refctd_ptr<video::IVirtualTexture>,MaxTexturesPerDraw> > textures;
+	core::smart_refctd_ptr<IGPUDescriptorSet> textureSet;
 
-	core::vector<video::IGPUMeshBuffer*> backup;
+	core::vector<IGPUMeshBuffer*> backup;
 };
 
 
-struct IndirectDrawKey : video::COpenGLVAOSpec::HashAttribs
+struct IndirectDrawKey
 {
-	IndirectDrawKey(asset::IMeshDataFormatDesc<video::IGPUBuffer>* pipeline) : video::COpenGLVAOSpec::HashAttribs(dynamic_cast<video::COpenGLVAOSpec*>(pipeline)->getHash())
+	IndirectDrawKey(video::IGPURenderpassIndependentPipeline* _pipeline, uint32_t* vertexBindingOffsets) : pipeline(_pipeline)
 	{
-		for (auto i = 0u; i < asset::EVAI_COUNT; i++)
+		for (auto i=0u; i<SVertexInputParams::MAX_ATTR_BUF_BINDING_COUNT; i++)
 		{
-			auto attr = static_cast<asset::E_VERTEX_ATTRIBUTE_ID>(i);
-			offset[i] = pipeline->getMappedBufferOffset(attr);
+			offset[i] = vertexBindingOffsets[i];
 		}
 	}
 
 	inline bool operator<(const IndirectDrawKey& other) const
 	{
-		if (video::COpenGLVAOSpec::HashAttribs::operator<(other))
+		if (pipeline<other.pipeline)
+			return true;
+		
+		if (pipeline!=other.pipeline)
 			return true;
 
-		if (video::COpenGLVAOSpec::HashAttribs::operator!=(other))
-			return false;
-
 		// parents equal, now compare children
-		for (auto i = 0u; i < asset::EVAI_COUNT; i++)
+		for (auto i=0u; i<SVertexInputParams::MAX_ATTR_BUF_BINDING_COUNT; i++)
 		{
 			if (offset[i] < other.offset[i])
 				return true;
@@ -88,12 +64,12 @@ struct IndirectDrawKey : video::COpenGLVAOSpec::HashAttribs
 
 	inline bool operator!=(const IndirectDrawKey& other) const
 	{
-		if (video::COpenGLVAOSpec::HashAttribs::operator!=(other))
+		if (pipeline!=other.pipeline)
 			return true;
 
-		for (auto i = 0u; i < asset::EVAI_COUNT; i++)
+		for (auto i=0u; i<SVertexInputParams::MAX_ATTR_BUF_BINDING_COUNT; i++)
 		{
-			if (offset[i] != other.offset[i])
+			if (offset[i]!=other.offset[i])
 				return true;
 		}
 		return false;
@@ -104,12 +80,12 @@ struct IndirectDrawKey : video::COpenGLVAOSpec::HashAttribs
 		return !((*this) != other);
 	}
 
-	uint32_t offset[asset::EVAI_COUNT];
+	IGPURenderpassIndependentPipeline* pipeline;
+	uint32_t offset[SVertexInputParams::MAX_ATTR_BUF_BINDING_COUNT];
 };
 
 int main()
 {
-	srand(time(0));
 	// create device with full flexibility over creation parameters
 	// you can add more parameters if desired, check irr::SIrrlichtCreationParameters
 	irr::SIrrlichtCreationParameters params;
@@ -121,43 +97,34 @@ int main()
 	params.Vsync = false;
 	params.Doublebuffer = true;
 	params.Stencilbuffer = false; //! This will not even be a choice soon
-	IrrlichtDevice* device = createDeviceEx(params);
+	auto device = createDeviceEx(params);
 
-	if (device == 0)
+	if (!device)
 		return 1; // could not create selected driver.
 
-
-	device->getCursorControl()->setVisible(false);
 
 	QToQuitEventReceiver receiver;
 	device->setEventReceiver(&receiver);
 
 
+	auto* am = device->getAssetManager();
+	
+	IAssetLoader::SAssetLoadParams lp;
+	auto vertexShaderBundle = am->getAsset("../mesh.vert",lp);
+	auto meshShaderBundle = am->getAsset("../mesh.frag",lp);
+
+
 	video::IVideoDriver* driver = device->getVideoDriver();
-
-	SimpleCallBack* cb = new SimpleCallBack();
-	video::E_MATERIAL_TYPE newMaterialType = (video::E_MATERIAL_TYPE)driver->getGPUProgrammingServices()->addHighLevelShaderMaterialFromFiles("../mesh.vert",
-		"", "", "", //! No Geometry or Tessellation Shaders
-		"../mesh.frag",
-		3, video::EMT_SOLID, //! 3 vertices per primitive (this is tessellation shader relevant only
-		cb, //! Our Shader Callback
-		0); //! No custom user data
-	cb->drop();
+	auto 
+		auto cpumesh = core::smart_refctd_ptr_static_cast<asset::ICPUMesh>(*asset.getContents().first);
+		auto gpumesh = driver->getGPUObjectsFromAssets(&cpumesh.get(), (&cpumesh.get()) + 1)->operator[](0);
 
 
+	//
 
-	scene::ISceneManager* smgr = device->getSceneManager();
-	driver->setTextureCreationFlag(video::ETCF_ALWAYS_32_BIT, true);
-	scene::ICameraSceneNode* camera =
-		smgr->addCameraSceneNodeFPS(0, 100.0f, 1.f);
-	camera->setPosition(core::vector3df(-4, 0, 0));
-	camera->setTarget(core::vector3df(0, 0, 0));
-	camera->setNearValue(1.f);
-	camera->setFarValue(10000.0f);
-	smgr->setActiveCamera(camera);
 
 	io::IFileSystem* fs = device->getFileSystem();
-	auto am = device->getAssetManager();
+
 
 	//! Load big-ass sponza model
 	// really want to get it working with a "../../media/sponza.zip?sponza.obj" path handling
@@ -165,34 +132,22 @@ int main()
 
 
 
+
+
 	using pipeline_type = asset::IMeshDataFormatDesc<video::IGPUBuffer>;
 	core::map<IndirectDrawKey, IndirectDrawInfo> indirectDraws;
 	//{
-		//! read cache results -- speeds up mesh generation
-		{
-			io::IReadFile* cacheFile = device->getFileSystem()->createAndOpenFile("../../tmp/normalCache101010.sse");
-			if (cacheFile)
-			{
-				asset::normalCacheFor2_10_10_10Quant.resize(cacheFile->getSize() / sizeof(asset::QuantizationCacheEntry2_10_10_10));
-				cacheFile->read(asset::normalCacheFor2_10_10_10Quant.data(), cacheFile->getSize());
-				cacheFile->drop();
-
-				//make sure its still ok
-				std::sort(asset::normalCacheFor2_10_10_10Quant.begin(), asset::normalCacheFor2_10_10_10Quant.end());
-			}
-		}
+		auto* qnc = am->getMeshManipulator()->getQuantNormalCache();
+		//loading cache from file
+		qnc->loadNormalQuantCacheFromFile<E_QUANT_NORM_CACHE_TYPE::Q_2_10_10_10>(fs, "../../tmp/normalCache101010.sse", true);
 
 		asset::IAssetLoader::SAssetLoadParams lparams; // crashes OBJ loader with those (0u, nullptr, asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES);
 		auto asset = am->getAsset("sponza.obj", lparams);
 		auto cpumesh = core::smart_refctd_ptr_static_cast<asset::ICPUMesh>(*asset.getContents().first);
 		auto gpumesh = driver->getGPUObjectsFromAssets(&cpumesh.get(), (&cpumesh.get()) + 1)->operator[](0);
-
-		//! cache results -- speeds up mesh generation on second run
-		{
-			io::IWriteFile* cacheFile = device->getFileSystem()->createAndWriteFile("../../tmp/normalCache101010.sse");
-			cacheFile->write(asset::normalCacheFor2_10_10_10Quant.data(), asset::normalCacheFor2_10_10_10Quant.size() * sizeof(asset::QuantizationCacheEntry2_10_10_10));
-			cacheFile->drop();
-		}
+		
+        //! cache results -- speeds up mesh generation on second run
+        qnc->saveCacheToFile(E_QUANT_NORM_CACHE_TYPE::Q_2_10_10_10, fs, "../../tmp/normalCache101010.sse");
 
 
 		for (auto i = 0u; i < gpumesh->getMeshBufferCount(); i++)
@@ -248,6 +203,17 @@ int main()
 	}
 
 
+	scene::ISceneManager* smgr = device->getSceneManager();
+	scene::ICameraSceneNode* camera =
+		smgr->addCameraSceneNodeFPS(0, 100.0f, 1.f);
+	camera->setPosition(core::vector3df(-4, 0, 0));
+	camera->setTarget(core::vector3df(0, 0, 0));
+	camera->setNearValue(1.f);
+	camera->setFarValue(10000.0f);
+	smgr->setActiveCamera(camera);
+
+	device->getCursorControl()->setVisible(false);
+
 	uint64_t lastFPSTime = 0;
 
 	while (device->run() && receiver.keepOpen())
@@ -263,32 +229,9 @@ int main()
 			if (!info.indirectDrawBuffer)
 				continue; 
 
-			driver->setMaterial(info.material);
-			{
-				GLuint textures[1024u] = { 0u };
-				GLenum targets[1024u] = { GL_INVALID_ENUM };
-
-				uint32_t count = 0u;
-				for (const auto& usedTexs : info.textures)
-				for (auto& tex : usedTexs)
-				{
-					auto* gltex = dynamic_cast<video::COpenGLTexture*>(tex.get());
-					if (gltex)
-					{
-						textures[count] = gltex->getOpenGLName();
-						targets[count] = gltex->getOpenGLTextureType();
-					}
-					else
-					{
-						textures[count] = 0u;
-						targets[count] = GL_INVALID_ENUM;
-					}
-					count++;
-				}
-
-				video::COpenGLExtensionHandler::extGlBindTextures(0u, count, textures, targets);
-			}
-			driver->drawIndexedIndirect(info.pipeline.get(), info.primitiveType, info.indexType, info.indirectDrawBuffer.get(), 0, info.indirectDrawBuffer->getSize()/sizeof(DrawElementsIndirectCommand), sizeof(DrawElementsIndirectCommand));
+			driver->bindGraphicsPipeline(info.pipeline.get());
+			driver->bindDescriptorSets(EPBP_GRAPHICS,info.pipeline->getLayout(),0u,1u,&info.textureSet.get(),nullptr);
+			driver->drawIndexedIndirect(, mode, indexT, indexBuffer, info.indirectDrawBuffer.get(), 0, info.indirectDrawBuffer->getSize()/sizeof(DrawElementsIndirectCommand), sizeof(DrawElementsIndirectCommand));
 		}
 
 		driver->endScene();
@@ -303,13 +246,6 @@ int main()
 			device->setWindowCaption(sstr.str().c_str());
 			lastFPSTime = time;
 		}
-	}
-
-
-	//create a screenshot
-	{
-		core::rect<uint32_t> sourceRect(0, 0, params.WindowSize.Width, params.WindowSize.Height);
-		ext::ScreenShot::dirtyCPUStallingScreenshot(device, "screenshot.png", sourceRect, asset::EF_R8G8B8_SRGB);
 	}
 
 
