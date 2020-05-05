@@ -8,6 +8,7 @@
 #include <algorithm>
 
 #include "irr/asset/asset.h"
+
 #include "IGPUBuffer.h"
 #include "IGPUDescriptorSet.h"
 #include "IGPURenderpassIndependentPipeline.h"
@@ -16,6 +17,7 @@ namespace irr
 {
 namespace video
 {
+
 	class IGPUMeshBuffer final : public asset::IMeshBuffer<IGPUBuffer,IGPUDescriptorSet,IGPURenderpassIndependentPipeline>
 	{
         using base_t = asset::IMeshBuffer<IGPUBuffer, IGPUDescriptorSet, IGPURenderpassIndependentPipeline>;

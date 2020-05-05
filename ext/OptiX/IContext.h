@@ -1,11 +1,7 @@
 #ifndef __IRR_EXT_OPTIX_CONTEXT_H_INCLUDED__
 #define __IRR_EXT_OPTIX_CONTEXT_H_INCLUDED__
 
-#include "irr/core/core.h"
-#include "irr/system/system.h"
-#include "IReadFile.h"
-
-
+#include "irrlicht.h"
 
 #include "../../ext/OptiX/IModule.h"
 #include "../../ext/OptiX/IDenoiser.h"
