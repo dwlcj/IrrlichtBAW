@@ -77,9 +77,6 @@ namespace irr
             //! Returns the operation system opertator object.
             virtual IOSOperator* getOSOperator();
 
-            //! Checks if the window is running in fullscreen mode.
-            virtual bool isFullscreen() const;
-
             //! get color format of the current window
             virtual asset::E_FORMAT getColorFormat() const;
 

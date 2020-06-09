@@ -1082,8 +1082,6 @@ class COpenGLDriver final : public CNullDriver, public COpenGLExtensionHandler
         std::mutex glContextMutex;
 		SAuxContext* AuxContexts;
         core::smart_refctd_ptr<const asset::IGLSLCompiler> GLSLCompiler;
-
-		E_DEVICE_TYPE DeviceType;
 	};
 
 } // end namespace video

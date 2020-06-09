@@ -78,7 +78,6 @@
 #include "CFileList.h"
 #include "CFileSystem.h"
 #include "CFPSCounter.h"
-#include "CIrrDeviceConsole.h"
 #include "CIrrDeviceLinux.h"
 #include "CIrrDeviceStub.h"
 #include "CIrrDeviceWin32.h"

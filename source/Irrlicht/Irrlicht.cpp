@@ -26,46 +26,22 @@ static const char* const copyright = "Irrlicht Engine (c) 2002-2011 Nikolaus Geb
 #include "CIrrDeviceSDL.h"
 #endif
 
-#include "CIrrDeviceConsole.h"
-
 namespace irr
 {
-	//! stub for calling createDeviceEx
-	core::smart_refctd_ptr<IrrlichtDevice> createDevice(video::E_DRIVER_TYPE driverType,
-			const core::dimension2d<uint32_t>& windowSize,
-			uint32_t bits, bool fullscreen,
-			bool stencilbuffer, bool vsync, IEventReceiver* res)
-	{
-		SIrrlichtCreationParameters p;
-		p.DriverType = driverType;
-		p.WindowSize = windowSize;
-		p.Bits = (uint8_t)bits;
-		p.Fullscreen = fullscreen;
-		p.Stencilbuffer = stencilbuffer;
-		p.Vsync = vsync;
-		p.EventReceiver = res;
-
-		return createDeviceEx(p);
-	}
 
 	core::smart_refctd_ptr<IrrlichtDevice> createDeviceEx(const SIrrlichtCreationParameters& params)
 	{
 		core::smart_refctd_ptr<IrrlichtDevice> dev;
 
 #ifdef _IRR_COMPILE_WITH_WINDOWS_DEVICE_
-		if (params.DeviceType == EIDT_WIN32 || (!dev && params.DeviceType == EIDT_BEST))
-			dev = core::make_smart_refctd_ptr<CIrrDeviceWin32>(params);
+		dev = core::make_smart_refctd_ptr<CIrrDeviceWin32>(params);
 #endif
 #ifdef _IRR_COMPILE_WITH_X11_DEVICE_
-		if (params.DeviceType == EIDT_X11 || (!dev && params.DeviceType == EIDT_BEST))
-			dev = core::make_smart_refctd_ptr<CIrrDeviceLinux>(params);
+		dev = core::make_smart_refctd_ptr<CIrrDeviceLinux>(params);
 #endif
 #ifdef _IRR_COMPILE_WITH_SDL_DEVICE_
-		if (params.DeviceType == EIDT_SDL || (!dev && params.DeviceType == EIDT_BEST))
-			dev = core::make_smart_refctd_ptr<CIrrDeviceSDL>(params);
+		dev = core::make_smart_refctd_ptr<CIrrDeviceSDL>(params);
 #endif
-		if (params.DeviceType == EIDT_CONSOLE || (!dev && params.DeviceType == EIDT_BEST))
-			dev = core::make_smart_refctd_ptr<CIrrDeviceConsole>(params);
 
 		if (dev && !dev->getVideoDriver() && params.DriverType != video::EDT_NULL)
 		{

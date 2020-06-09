@@ -233,7 +233,7 @@ COpenGLDriver::COpenGLDriver(const irr::SIrrlichtCreationParameters& params,
 : CNullDriver(device, io, params), COpenGLExtensionHandler(),
 	runningInRenderDoc(false),  ColorFormat(asset::EF_R8G8B8_UNORM),
 	HDc(0), Window(static_cast<HWND>(params.WindowId)), Win32Device(device),
-	AuxContexts(0), GLSLCompiler(glslcomp), DeviceType(EIDT_WIN32)
+	AuxContexts(0), GLSLCompiler(glslcomp)
 {
 	#ifdef _IRR_DEBUG
 	setDebugName("COpenGLDriver");
@@ -301,7 +301,7 @@ bool COpenGLDriver::initDriver(CIrrDeviceWin32* device)
 	clientSize.bottom = Params.WindowSize.Height;
 
 	DWORD style = WS_POPUP;
-	if (!Params.Fullscreen)
+	if (Params.SwapchainComposting==SIrrlichtCreationParameters::ESC_WINDOWED)
 		style = WS_SYSMENU | WS_BORDER | WS_CAPTION | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 
 	AdjustWindowRect(&clientSize, style, FALSE);
@@ -493,55 +493,58 @@ bool COpenGLDriver::initDriver(CIrrDeviceWin32* device)
 		return false;
 	}
 
-	// search for pixel format the simple way
-	if (PixelFormat==0 || (!SetPixelFormat(HDc, PixelFormat, &pfd)))
-	{
-		for (uint32_t i=0; i<5; ++i)
-		{
-			if (i == 1)
-			{
-				if (Params.Stencilbuffer)
-				{
-					os::Printer::log("Cannot create a GL device with stencil buffer, disabling stencil shadows.", ELL_WARNING);
-					Params.Stencilbuffer = false;
-					pfd.cStencilBits = 0;
-				}
-				else
-					continue;
-			}
-			else
-			if (i == 2)
-			{
-				pfd.cDepthBits = 24;
-			}
-			if (i == 3)
-			{
-				if (Params.Bits!=16)
-					pfd.cDepthBits = 16;
-				else
-					continue;
-			}
-			else
-			if (i == 4)
-			{
-				os::Printer::log("Cannot create a GL device context", "No suitable format.", ELL_ERROR);
-				return false;
-			}
+    if (Window)
+    {
+	    // search for pixel format the simple way
+	    if (PixelFormat==0 || (!SetPixelFormat(HDc, PixelFormat, &pfd)))
+	    {
+		    for (uint32_t i=0; i<5; ++i)
+		    {
+			    if (i == 1)
+			    {
+				    if (Params.Stencilbuffer)
+				    {
+					    os::Printer::log("Cannot create a GL device with stencil buffer, disabling stencil shadows.", ELL_WARNING);
+					    Params.Stencilbuffer = false;
+					    pfd.cStencilBits = 0;
+				    }
+				    else
+					    continue;
+			    }
+			    else
+			    if (i == 2)
+			    {
+				    pfd.cDepthBits = 24;
+			    }
+			    if (i == 3)
+			    {
+				    if (Params.Bits!=16)
+					    pfd.cDepthBits = 16;
+				    else
+					    continue;
+			    }
+			    else
+			    if (i == 4)
+			    {
+				    os::Printer::log("Cannot create a GL device context", "No suitable format.", ELL_ERROR);
+				    return false;
+			    }
 
-			// choose pixelformat
-			PixelFormat = ChoosePixelFormat(HDc, &pfd);
-			if (PixelFormat)
-				break;
-		}
+			    // choose pixelformat
+			    PixelFormat = ChoosePixelFormat(HDc, &pfd);
+			    if (PixelFormat)
+				    break;
+		    }
 
-        // set pixel format
-        if (!SetPixelFormat(HDc, PixelFormat, &pfd))
-        {
-            os::Printer::log("Cannot set the pixel format.", ELL_ERROR);
-            return false;
+            // set pixel format
+            if (!SetPixelFormat(HDc, PixelFormat, &pfd))
+            {
+                os::Printer::log("Cannot set the pixel format.", ELL_ERROR);
+                return false;
+            }
         }
+	    os::Printer::log("Pixel Format", std::to_string(PixelFormat), ELL_DEBUG);
     }
-	os::Printer::log("Pixel Format", std::to_string(PixelFormat), ELL_DEBUG);
 
 	int iAttribs[] =
 	{
@@ -830,8 +833,6 @@ COpenGLDriver::~COpenGLDriver()
     }
 
 #ifdef _IRR_COMPILE_WITH_WINDOWS_DEVICE_
-	if (DeviceType == EIDT_WIN32)
-	{
         for (size_t i=1; i<=Params.AuxGLContexts; i++)
             wglDeleteContext(AuxContexts[i].ctx);
 
@@ -852,21 +853,14 @@ COpenGLDriver::~COpenGLDriver()
         //    DestroyWindow(temporary_wnd);
         //    UnregisterClass(ClassName, lhInstance);
         //}
-	}
-#ifdef _IRR_COMPILE_WITH_X11_DEVICE_
-	else
-#endif // _IRR_COMPILE_WITH_X11_DEVICE_
 #endif
 #ifdef _IRR_COMPILE_WITH_X11_DEVICE_
-    if (DeviceType == EIDT_X11)
-    {
         for (size_t i=1; i<=Params.AuxGLContexts; i++)
         {
             assert(AuxContexts[i].threadId==std::thread::id());
             glXDestroyPbuffer((Display*)ExposedData.OpenGLLinux.X11Display,AuxContexts[i].pbuff);
             glXDestroyContext((Display*)ExposedData.OpenGLLinux.X11Display,AuxContexts[i].ctx);
         }
-    }
 #endif // _IRR_COMPILE_WITH_X11_DEVICE_
     _IRR_DELETE_ARRAY(AuxContexts,Params.AuxGLContexts+1);
     glContextMutex.unlock();
@@ -1111,33 +1105,18 @@ bool COpenGLDriver::endScene()
 	CNullDriver::endScene();
 
 #ifdef _IRR_COMPILE_WITH_WINDOWS_DEVICE_
-	if (DeviceType == EIDT_WIN32)
-		return SwapBuffers(HDc) == TRUE;
+	    return SwapBuffers(HDc) == TRUE;
 #endif
 
 #ifdef _IRR_COMPILE_WITH_X11_DEVICE_
-	if (DeviceType == EIDT_X11)
-	{
 		glXSwapBuffers(X11Display, Drawable);
 		return true;
-	}
 #endif
 
 #ifdef _IRR_COMPILE_WITH_SDL_DEVICE_
-	if (DeviceType == EIDT_SDL)
-	{
 		SDL_GL_SwapBuffers();
 		return true;
-	}
 #endif
-
-	// todo: console device present
-
-    auto ctx = getThreadContext_helper(false);
-	ctx->freeUpVAOCache(false);
-    ctx->freeUpGraphicsPipelineCache(false);
-
-	return false;
 }
 
 

@@ -213,14 +213,6 @@ void CIrrDeviceStub::setInputReceivingSceneManager(scene::ISceneManager* sceneMa
 	InputReceivingSceneManager = sceneManager;
 }
 
-
-//! Checks if the window is running in fullscreen mode
-bool CIrrDeviceStub::isFullscreen() const
-{
-	return CreationParams.Fullscreen;
-}
-
-
 //! returns color format
 asset::E_FORMAT CIrrDeviceStub::getColorFormat() const
 {

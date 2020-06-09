@@ -16,20 +16,6 @@
 #include "dimension2d.h"
 #include <winuser.h>
 #include "irr/core/Types.h"
-#if defined(_IRR_COMPILE_WITH_JOYSTICK_EVENTS_)
-#ifdef _IRR_COMPILE_WITH_DIRECTINPUT_JOYSTICK_
-#define DIRECTINPUT_VERSION 0x0800
-#include <dinput.h>
-#ifdef _MSC_VER
-#pragma comment(lib, "dinput8.lib")
-#pragma comment(lib, "dxguid.lib")
-#endif
-#else
-#ifdef _MSC_VER
-#pragma comment(lib, "winmm.lib")
-#endif
-#endif
-#endif
 
 namespace irr
 {
@@ -586,320 +572,15 @@ static unsigned int LocaleIdToCodepage(unsigned int lcid)
 	return 65001;   // utf-8
 }
 
-namespace
-{
-	struct SEnvMapper
-	{
-		HWND hWnd;
-		irr::CIrrDeviceWin32* irrDev;
-	};
-	irr::core::list<SEnvMapper> EnvMap;
-
-	HKL KEYBOARD_INPUT_HKL=0;
-	unsigned int KEYBOARD_INPUT_CODEPAGE = 1252;
-}
-
-SEnvMapper* getEnvMapperFromHWnd(HWND hWnd)
-{
-	irr::core::list<SEnvMapper>::iterator it = EnvMap.begin();
-	for (; it!= EnvMap.end(); ++it)
-		if ((*it).hWnd == hWnd)
-			return &(*it);
-
-	return 0;
-}
-
-
-irr::CIrrDeviceWin32* getDeviceFromHWnd(HWND hWnd)
-{
-	irr::core::list<SEnvMapper>::iterator it = EnvMap.begin();
-	for (; it!= EnvMap.end(); ++it)
-		if ((*it).hWnd == hWnd)
-			return (*it).irrDev;
-
-	return 0;
-}
-
-
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	#ifndef WM_MOUSEWHEEL
-	#define WM_MOUSEWHEEL 0x020A
-	#endif
-	#ifndef WHEEL_DELTA
-	#define WHEEL_DELTA 120
-	#endif
-
-	irr::CIrrDeviceWin32* dev = 0;
-	irr::SEvent event;
-
-	static int32_t ClickCount=0;
-	if (GetCapture() != hWnd && ClickCount > 0)
-		ClickCount = 0;
-
-
-	struct messageMap
-	{
-		int32_t group;
-		UINT winMessage;
-		int32_t irrMessage;
-	};
-
-	static messageMap mouseMap[] =
-	{
-		{0, WM_LBUTTONDOWN, irr::EMIE_LMOUSE_PRESSED_DOWN},
-		{1, WM_LBUTTONUP,   irr::EMIE_LMOUSE_LEFT_UP},
-		{0, WM_RBUTTONDOWN, irr::EMIE_RMOUSE_PRESSED_DOWN},
-		{1, WM_RBUTTONUP,   irr::EMIE_RMOUSE_LEFT_UP},
-		{0, WM_MBUTTONDOWN, irr::EMIE_MMOUSE_PRESSED_DOWN},
-		{1, WM_MBUTTONUP,   irr::EMIE_MMOUSE_LEFT_UP},
-		{2, WM_MOUSEMOVE,   irr::EMIE_MOUSE_MOVED},
-		{3, WM_MOUSEWHEEL,  irr::EMIE_MOUSE_WHEEL},
-		{-1, 0, 0}
-	};
-
-	// handle grouped events
-	messageMap * m = mouseMap;
-	while ( m->group >=0 && m->winMessage != message )
-		m += 1;
-
-	if ( m->group >= 0 )
-	{
-		if ( m->group == 0 )	// down
-		{
-			ClickCount++;
-			SetCapture(hWnd);
-		}
-		else
-		if ( m->group == 1 )	// up
-		{
-			ClickCount--;
-			if (ClickCount<1)
-			{
-				ClickCount=0;
-				ReleaseCapture();
-			}
-		}
-
-		event.EventType = irr::EET_MOUSE_INPUT_EVENT;
-		event.MouseInput.Event = (irr::EMOUSE_INPUT_EVENT) m->irrMessage;
-		event.MouseInput.X = (short)LOWORD(lParam);
-		event.MouseInput.Y = (short)HIWORD(lParam);
-		event.MouseInput.Shift = ((LOWORD(wParam) & MK_SHIFT) != 0);
-		event.MouseInput.Control = ((LOWORD(wParam) & MK_CONTROL) != 0);
-		// left and right mouse buttons
-		event.MouseInput.ButtonStates = wParam & ( MK_LBUTTON | MK_RBUTTON);
-		// middle and extra buttons
-		if (wParam & MK_MBUTTON)
-			event.MouseInput.ButtonStates |= irr::EMBSM_MIDDLE;
-#if(_WIN32_WINNT >= 0x0500)
-		if (wParam & MK_XBUTTON1)
-			event.MouseInput.ButtonStates |= irr::EMBSM_EXTRA1;
-		if (wParam & MK_XBUTTON2)
-			event.MouseInput.ButtonStates |= irr::EMBSM_EXTRA2;
-#endif
-		event.MouseInput.Wheel = 0.f;
-
-		// wheel
-		if ( m->group == 3 )
-		{
-			POINT p; // fixed by jox
-			p.x = 0; p.y = 0;
-			ClientToScreen(hWnd, &p);
-			event.MouseInput.X -= p.x;
-			event.MouseInput.Y -= p.y;
-			event.MouseInput.Wheel = ((float)((short)HIWORD(wParam))) / (float)WHEEL_DELTA;
-		}
-
-		dev = getDeviceFromHWnd(hWnd);
-		if (dev)
-		{
-			dev->postEventFromUser(event);
-
-			if ( event.MouseInput.Event >= irr::EMIE_LMOUSE_PRESSED_DOWN && event.MouseInput.Event <= irr::EMIE_MMOUSE_PRESSED_DOWN )
-			{
-				uint32_t clicks = dev->checkSuccessiveClicks(event.MouseInput.X, event.MouseInput.Y, event.MouseInput.Event);
-				if ( clicks == 2 )
-				{
-					event.MouseInput.Event = (irr::EMOUSE_INPUT_EVENT)(irr::EMIE_LMOUSE_DOUBLE_CLICK + event.MouseInput.Event-irr::EMIE_LMOUSE_PRESSED_DOWN);
-					dev->postEventFromUser(event);
-				}
-				else if ( clicks == 3 )
-				{
-					event.MouseInput.Event = (irr::EMOUSE_INPUT_EVENT)(irr::EMIE_LMOUSE_TRIPLE_CLICK + event.MouseInput.Event-irr::EMIE_LMOUSE_PRESSED_DOWN);
-					dev->postEventFromUser(event);
-				}
-			}
-		}
-		return 0;
-	}
-
-	switch (message)
-	{
-	case WM_PAINT:
-		{
-			PAINTSTRUCT ps;
-			BeginPaint(hWnd, &ps);
-			EndPaint(hWnd, &ps);
-		}
-		return 0;
-
-	case WM_ERASEBKGND:
-		return 0;
-
-	case WM_SYSKEYDOWN:
-	case WM_SYSKEYUP:
-	case WM_KEYDOWN:
-	case WM_KEYUP:
-		{
-			BYTE allKeys[256];
-
-			event.EventType = irr::EET_KEY_INPUT_EVENT;
-			event.KeyInput.Key = (irr::EKEY_CODE)wParam;
-			event.KeyInput.PressedDown = (message==WM_KEYDOWN || message == WM_SYSKEYDOWN);
-
-			const UINT MY_MAPVK_VSC_TO_VK_EX = 3; // MAPVK_VSC_TO_VK_EX should be in SDK according to MSDN, but isn't in mine.
-			if ( event.KeyInput.Key == irr::KEY_SHIFT )
-			{
-				// this will fail on systems before windows NT/2000/XP, not sure _what_ will return there instead.
-				event.KeyInput.Key = (irr::EKEY_CODE)MapVirtualKey( ((lParam>>16) & 255), MY_MAPVK_VSC_TO_VK_EX );
-			}
-			if ( event.KeyInput.Key == irr::KEY_CONTROL )
-			{
-				event.KeyInput.Key = (irr::EKEY_CODE)MapVirtualKey( ((lParam>>16) & 255), MY_MAPVK_VSC_TO_VK_EX );
-				// some keyboards will just return LEFT for both - left and right keys. So also check extend bit.
-				if (lParam & 0x1000000)
-					event.KeyInput.Key = irr::KEY_RCONTROL;
-			}
-			if ( event.KeyInput.Key == irr::KEY_MENU )
-			{
-				event.KeyInput.Key = (irr::EKEY_CODE)MapVirtualKey( ((lParam>>16) & 255), MY_MAPVK_VSC_TO_VK_EX );
-				if (lParam & 0x1000000)
-					event.KeyInput.Key = irr::KEY_RMENU;
-			}
-
-			GetKeyboardState(allKeys);
-
-			event.KeyInput.Shift = ((allKeys[VK_SHIFT] & 0x80)!=0);
-			event.KeyInput.Control = ((allKeys[VK_CONTROL] & 0x80)!=0);
-
-			// Handle unicode and deadkeys in a way that works since Windows 95 and nt4.0
-			// Using ToUnicode instead would be shorter, but would to my knowledge not run on 95 and 98.
-			WORD keyChars[2];
-			UINT scanCode = HIWORD(lParam);
-			int conversionResult = ToAsciiEx(wParam,scanCode,allKeys,keyChars,0,KEYBOARD_INPUT_HKL);
-			if (conversionResult == 1)
-			{
-				WORD unicodeChar;
-				MultiByteToWideChar(
-						KEYBOARD_INPUT_CODEPAGE,
-						MB_PRECOMPOSED, // default
-						(LPCSTR)keyChars,
-						sizeof(keyChars),
-						(WCHAR*)&unicodeChar,
-						1 );
-				event.KeyInput.Char = unicodeChar;
-			}
-			else
-				event.KeyInput.Char = 0;
-
-			// allow composing characters like '@' with Alt Gr on non-US keyboards
-			if ((allKeys[VK_MENU] & 0x80) != 0)
-				event.KeyInput.Control = 0;
-
-			dev = getDeviceFromHWnd(hWnd);
-			if (dev)
-				dev->postEventFromUser(event);
-
-			if (message == WM_SYSKEYDOWN || message == WM_SYSKEYUP)
-				return DefWindowProc(hWnd, message, wParam, lParam);
-			else
-				return 0;
-		}
-
-	case WM_SIZE:
-		{
-			// resize
-			dev = getDeviceFromHWnd(hWnd);
-			if (dev)
-				dev->OnResized();
-		}
-		return 0;
-
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		return 0;
-
-	case WM_SYSCOMMAND:
-		// prevent screensaver or monitor powersave mode from starting
-		if ((wParam & 0xFFF0) == SC_SCREENSAVE ||
-			(wParam & 0xFFF0) == SC_MONITORPOWER ||
-			(wParam & 0xFFF0) == SC_KEYMENU
-			)
-			return 0;
-
-		break;
-
-	case WM_ACTIVATE:
-		// we need to take care for screen changes, e.g. Alt-Tab
-		dev = getDeviceFromHWnd(hWnd);
-		if (dev && dev->isFullscreen())
-		{
-			if ((wParam&0xFF)==WA_INACTIVE)
-			{
-				// If losing focus we minimize the app to show other one
-				ShowWindow(hWnd,SW_MINIMIZE);
-				// and switch back to default resolution
-				dev->switchToFullScreen(true);
-			}
-			else
-			{
-				// Otherwise we retore the fullscreen Irrlicht app
-				SetForegroundWindow(hWnd);
-				ShowWindow(hWnd, SW_RESTORE);
-				// and set the fullscreen resolution again
-				dev->switchToFullScreen();
-			}
-		}
-		break;
-
-	case WM_USER:
-		event.EventType = irr::EET_USER_EVENT;
-		event.UserEvent.UserData1 = (int32_t)wParam;
-		event.UserEvent.UserData2 = (int32_t)lParam;
-		dev = getDeviceFromHWnd(hWnd);
-
-		if (dev)
-			dev->postEventFromUser(event);
-
-		return 0;
-
-	case WM_SETCURSOR:
-		// because Windows forgot about that in the meantime
-		dev = getDeviceFromHWnd(hWnd);
-		if (dev)
-		{
-			dev->getCursorControl()->setActiveIcon( dev->getCursorControl()->getActiveIcon() );
-			dev->getCursorControl()->setVisible( dev->getCursorControl()->isVisible() );
-		}
-		break;
-
-	case WM_INPUTLANGCHANGE:
-		// get the new codepage used for keyboard input
-		KEYBOARD_INPUT_HKL = GetKeyboardLayout(0);
-		KEYBOARD_INPUT_CODEPAGE = LocaleIdToCodepage( LOWORD(KEYBOARD_INPUT_HKL) );
-		return 0;
-	}
-	return DefWindowProc(hWnd, message, wParam, lParam);
-}
 
 
 namespace irr
 {
 
+
 //! constructor
 CIrrDeviceWin32::CIrrDeviceWin32(const SIrrlichtCreationParameters& params)
-: CIrrDeviceStub(params), HWnd(0), ChangedToFullScreen(false), Resized(false),
+: CIrrDeviceStub(params), HWnd(0), Resized(false),
 	ExternalWindow(false), Win32CursorControl(0), JoyControl(0)
 {
 	#ifdef _IRR_DEBUG
@@ -915,102 +596,95 @@ CIrrDeviceWin32::CIrrDeviceWin32(const SIrrlichtCreationParameters& params)
 	// get handle to exe file
 	HINSTANCE hInstance = GetModuleHandle(0);
 
-	// Store original desktop mode.
-
-	memset(&DesktopMode, 0, sizeof(DesktopMode));
-	DesktopMode.dmSize = sizeof(DesktopMode);
-
-	EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &DesktopMode);
-
-	// create the window if we need to and we do not use the null device
-	if (!CreationParams.WindowId && CreationParams.DriverType != video::EDT_NULL)
+	if (CreationParams.SwapchainComposting!=SIrrlichtCreationParameters::ESC_VIRTUAL)
 	{
-		const char* ClassName = __TEXT("CIrrDeviceWin32");
-
-		// Register Class
-		WNDCLASSEX wcex;
-		wcex.cbSize			= sizeof(WNDCLASSEX);
-		wcex.style			= CS_HREDRAW | CS_VREDRAW;
-		wcex.lpfnWndProc	= WndProc;
-		wcex.cbClsExtra		= 0;
-		wcex.cbWndExtra		= 0;
-		wcex.hInstance		= hInstance;
-		wcex.hIcon			= NULL;
-		wcex.hCursor		= 0; // LoadCursor(NULL, IDC_ARROW);
-		wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
-		wcex.lpszMenuName	= 0;
-		wcex.lpszClassName	= ClassName;
-		wcex.hIconSm		= 0;
-
-		// if there is an icon, load it
-		wcex.hIcon = (HICON)LoadImage(hInstance, __TEXT("irrlicht.ico"), IMAGE_ICON, 0,0, LR_LOADFROMFILE);
-
-		RegisterClassEx(&wcex);
-
-		// calculate client size
-
-		RECT clientSize;
-		clientSize.top = 0;
-		clientSize.left = 0;
-		clientSize.right = CreationParams.WindowSize.Width;
-		clientSize.bottom = CreationParams.WindowSize.Height;
-
-		DWORD style = WS_POPUP;
-
-		if (!CreationParams.Fullscreen)
-			style = WS_SYSMENU | WS_BORDER | WS_CAPTION | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
-
-		AdjustWindowRect(&clientSize, style, FALSE);
-
-		const int32_t realWidth = clientSize.right - clientSize.left;
-		const int32_t realHeight = clientSize.bottom - clientSize.top;
-
-		int32_t windowLeft = (GetSystemMetrics(SM_CXSCREEN) - realWidth) / 2;
-		int32_t windowTop = (GetSystemMetrics(SM_CYSCREEN) - realHeight) / 2;
-
-		if ( windowLeft < 0 )
-			windowLeft = 0;
-		if ( windowTop < 0 )
-			windowTop = 0;	// make sure window menus are in screen on creation
-
-		if (CreationParams.Fullscreen)
+		// create the window if we need to and we do not use the null device
+		if (!CreationParams.WindowId && CreationParams.DriverType != video::EDT_NULL)
 		{
-			windowLeft = 0;
-			windowTop = 0;
+			const char* ClassName = __TEXT("CIrrDeviceWin32");
+
+			// Register Class
+			WNDCLASSEX wcex;
+			wcex.cbSize			= sizeof(WNDCLASSEX);
+			wcex.style			= CS_HREDRAW | CS_VREDRAW;
+			wcex.lpfnWndProc	= WndProc;
+			wcex.cbClsExtra		= 0;
+			wcex.cbWndExtra		= 0;
+			wcex.hInstance		= hInstance;
+			wcex.hIcon			= NULL;
+			wcex.hCursor		= 0; // LoadCursor(NULL, IDC_ARROW);
+			wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
+			wcex.lpszMenuName	= 0;
+			wcex.lpszClassName	= ClassName;
+			wcex.hIconSm		= 0;
+
+			RegisterClassEx(&wcex);
+
+			// calculate client size
+
+			RECT clientSize;
+			clientSize.top = 0;
+			clientSize.left = 0;
+			clientSize.right = CreationParams.WindowSize.Width;
+			clientSize.bottom = CreationParams.WindowSize.Height;
+
+			DWORD style = WS_POPUP;
+
+			if (CreationParams.SwapchainComposting==SIrrlichtCreationParameters::ESC_WINDOWED)
+				style = WS_SYSMENU | WS_BORDER | WS_CAPTION | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+
+			AdjustWindowRect(&clientSize, style, FALSE);
+
+			const int32_t realWidth = clientSize.right - clientSize.left;
+			const int32_t realHeight = clientSize.bottom - clientSize.top;
+
+			int32_t windowLeft = (GetSystemMetrics(SM_CXSCREEN) - realWidth) / 2;
+			int32_t windowTop = (GetSystemMetrics(SM_CYSCREEN) - realHeight) / 2;
+
+			if ( windowLeft < 0 )
+				windowLeft = 0;
+			if ( windowTop < 0 )
+				windowTop = 0;	// make sure window menus are in screen on creation
+
+			if (CreationParams.SwapchainComposting==SIrrlichtCreationParameters::ESC_FULLSCREEN)
+			{
+				windowLeft = 0;
+				windowTop = 0;
+			}
+
+			// create window
+
+			HWnd = CreateWindow( ClassName, __TEXT(""), style, windowLeft, windowTop,
+						realWidth, realHeight, NULL, NULL, hInstance, NULL);
+			CreationParams.WindowId = HWnd;
+	//		CreationParams.WindowSize.Width = realWidth;
+	//		CreationParams.WindowSize.Height = realHeight;
+
+			ShowWindow(HWnd, SW_SHOWNORMAL);
+			UpdateWindow(HWnd);
+
+			// fix ugly ATI driver bugs. Thanks to ariaci
+			MoveWindow(HWnd, windowLeft, windowTop, realWidth, realHeight, TRUE);
+
+			// make sure everything gets updated to the real sizes
+			Resized = true;
 		}
-
-		// create window
-
-		HWnd = CreateWindow( ClassName, __TEXT(""), style, windowLeft, windowTop,
-					realWidth, realHeight, NULL, NULL, hInstance, NULL);
-		CreationParams.WindowId = HWnd;
-//		CreationParams.WindowSize.Width = realWidth;
-//		CreationParams.WindowSize.Height = realHeight;
-
-		ShowWindow(HWnd, SW_SHOWNORMAL);
-		UpdateWindow(HWnd);
-
-		// fix ugly ATI driver bugs. Thanks to ariaci
-		MoveWindow(HWnd, windowLeft, windowTop, realWidth, realHeight, TRUE);
-
-		// make sure everything gets updated to the real sizes
-		Resized = true;
-	}
-	else if (CreationParams.WindowId)
-	{
-		// attach external window
-		HWnd = static_cast<HWND>(CreationParams.WindowId);
-		RECT r;
-		GetWindowRect(HWnd, &r);
-		CreationParams.WindowSize.Width = r.right - r.left;
-		CreationParams.WindowSize.Height = r.bottom - r.top;
-		CreationParams.Fullscreen = false;
-		ExternalWindow = true;
+		else if (CreationParams.WindowId)
+		{
+			// attach external window
+			HWnd = static_cast<HWND>(CreationParams.WindowId);
+			RECT r;
+			GetWindowRect(HWnd, &r);
+			CreationParams.WindowSize.Width = r.right - r.left;
+			CreationParams.WindowSize.Height = r.bottom - r.top;
+			CreationParams.SwapchainComposting = SIrrlichtCreationParameters::ESC_WINDOWED;
+			ExternalWindow = true;
+		}
 	}
 
 	// create cursor control
 
-	Win32CursorControl = new CCursorControl(this, CreationParams.WindowSize, HWnd, CreationParams.Fullscreen);
+	Win32CursorControl = new CCursorControl(this, CreationParams.WindowSize, HWnd, CreationParams.SwapchainComposting==SIrrlichtCreationParameters::ESC_FULLSCREEN);
 	CursorControl = Win32CursorControl;
 	JoyControl = new SJoystickWin32Control(this);
 
@@ -1030,23 +704,25 @@ CIrrDeviceWin32::CIrrDeviceWin32(const SIrrlichtCreationParameters& params)
 	if (VideoDriver)
 		createGUIAndScene();
 
-	// register environment
-
-	SEnvMapper em;
-	em.irrDev = this;
-	em.hWnd = HWnd;
-	EnvMap.push_back(em);
-
 	// set this as active window
-	if (!ExternalWindow)
+	if (!ExternalWindow && HWnd)
 	{
 		SetActiveWindow(HWnd);
 		SetForegroundWindow(HWnd);
 	}
 
 	// get the codepage used for keyboard input
-	KEYBOARD_INPUT_HKL = GetKeyboardLayout(0);
-	KEYBOARD_INPUT_CODEPAGE = LocaleIdToCodepage( LOWORD(KEYBOARD_INPUT_HKL) );
+	if (HWnd)
+	{
+		WindowProcParams procParams;
+		procParams.device = this;
+		procParams.KEYBOARD_INPUT_HKL = GetKeyboardLayout(0);
+		procParams.KEYBOARD_INPUT_CODEPAGE = LocaleIdToCodepage( LOWORD(procParams.KEYBOARD_INPUT_HKL) );
+		{
+			std::unique_lock scopeLock(windowProcMapMutex);
+			windowProcMap.insert({HWnd,procParams});
+		}
+	}
 
 	// inform driver about the window size etc.
 	resizeIfNecessary();
@@ -1056,19 +732,13 @@ CIrrDeviceWin32::CIrrDeviceWin32(const SIrrlichtCreationParameters& params)
 //! destructor
 CIrrDeviceWin32::~CIrrDeviceWin32()
 {
-	delete JoyControl;
-
-	// unregister environment
-
-	auto it = EnvMap.begin();
-	for (; it!= EnvMap.end(); ++it)
+	if (HWnd)
 	{
-		if ((*it).hWnd == HWnd)
-		{
-			EnvMap.erase(it);
-			break;
-		}
+		std::unique_lock scopeLock(windowProcMapMutex);
+		windowProcMap.erase(HWnd);
 	}
+
+	delete JoyControl;
 
 	switchToFullScreen(true);
 
@@ -1159,7 +829,7 @@ void CIrrDeviceWin32::sleep(uint32_t timeMs, bool pauseTimer)
 
 void CIrrDeviceWin32::resizeIfNecessary()
 {
-	if (!Resized || !getVideoDriver())
+	if (!Resized || !HWnd || !getVideoDriver())
 		return;
 
 	RECT r;
@@ -1245,65 +915,8 @@ bool CIrrDeviceWin32::isWindowMinimized() const
 //! switches to fullscreen
 bool CIrrDeviceWin32::switchToFullScreen(bool reset)
 {
-	if (!CreationParams.Fullscreen)
-		return true;
-
-	if (reset)
-	{
-		if (ChangedToFullScreen)
-		{
-			return (ChangeDisplaySettings(&DesktopMode,0)==DISP_CHANGE_SUCCESSFUL);
-		}
-		else
-			return true;
-	}
-
-	// use default values from current setting
-
-	DEVMODE dm;
-	memset(&dm, 0, sizeof(dm));
-	dm.dmSize = sizeof(dm);
-
-	EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &dm);
-	dm.dmPelsWidth = CreationParams.WindowSize.Width;
-	dm.dmPelsHeight = CreationParams.WindowSize.Height;
-	dm.dmBitsPerPel = CreationParams.Bits;
-	dm.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
-
-	LONG res = ChangeDisplaySettings(&dm, CDS_FULLSCREEN);
-	if (res != DISP_CHANGE_SUCCESSFUL)
-	{ // try again without forcing display frequency
-		dm.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
-		res = ChangeDisplaySettings(&dm, CDS_FULLSCREEN);
-	}
-
-	bool ret = false;
-	switch(res)
-	{
-	case DISP_CHANGE_SUCCESSFUL:
-		ChangedToFullScreen = true;
-		ret = true;
-		break;
-	case DISP_CHANGE_RESTART:
-		os::Printer::log("Switch to fullscreen: The computer must be restarted in order for the graphics mode to work.", ELL_ERROR);
-		break;
-	case DISP_CHANGE_BADFLAGS:
-		os::Printer::log("Switch to fullscreen: An invalid set of flags was passed in.", ELL_ERROR);
-		break;
-	case DISP_CHANGE_BADPARAM:
-		os::Printer::log("Switch to fullscreen: An invalid parameter was passed in. This can include an invalid flag or combination of flags.", ELL_ERROR);
-		break;
-	case DISP_CHANGE_FAILED:
-		os::Printer::log("Switch to fullscreen: The display driver failed the specified graphics mode.", ELL_ERROR);
-		break;
-	case DISP_CHANGE_BADMODE:
-		os::Printer::log("Switch to fullscreen: The graphics mode is not supported.", ELL_ERROR);
-		break;
-	default:
-		os::Printer::log("An unknown error occured while changing to fullscreen.", ELL_ERROR);
-		break;
-	}
-	return ret;
+	_IRR_DEBUG_BREAK_IF(true);
+	return false;
 }
 
 
@@ -1542,7 +1155,7 @@ void CIrrDeviceWin32::OnResized()
 //! Sets if the window should be resizable in windowed mode.
 void CIrrDeviceWin32::setResizable(bool resize)
 {
-	if (ExternalWindow || !getVideoDriver() || CreationParams.Fullscreen)
+	if (ExternalWindow || !getVideoDriver() || CreationParams.SwapchainComposting!=SIrrlichtCreationParameters::ESC_WINDOWED)
 		return;
 
 	LONG_PTR style = WS_POPUP;
@@ -1572,7 +1185,7 @@ void CIrrDeviceWin32::setResizable(bool resize)
 	SetWindowPos(HWnd, HWND_TOP, windowLeft, windowTop, realWidth, realHeight,
 		SWP_FRAMECHANGED | SWP_NOMOVE | SWP_SHOWWINDOW);
 
-	static_cast<CCursorControl*>(CursorControl)->updateBorderSize(CreationParams.Fullscreen, resize);
+	static_cast<CCursorControl*>(CursorControl)->updateBorderSize(false, resize);
 }
 
 
@@ -1819,6 +1432,283 @@ core::dimension2di CIrrDeviceWin32::CCursorControl::getSupportedIconSize() const
 	return result;
 }
 
+
+
+LRESULT CALLBACK CIrrDeviceWin32::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	WindowProcParams params;
+	{
+		std::unique_lock scopeLock(windowProcMapMutex);
+		auto found = windowProcMap.find(hWnd);
+		assert(found!=windowProcMap.end());
+		params = found->second;
+	}
+
+
+	irr::SEvent event;
+
+	static int32_t ClickCount=0;
+	if (GetCapture() != hWnd && ClickCount > 0)
+		ClickCount = 0;
+
+	struct messageMap
+	{
+		int32_t group;
+		UINT winMessage;
+		int32_t irrMessage;
+	};
+
+#ifndef WM_MOUSEWHEEL
+#define WM_MOUSEWHEEL 0x020A
+#endif
+	static messageMap mouseMap[] =
+	{
+		{0, WM_LBUTTONDOWN, irr::EMIE_LMOUSE_PRESSED_DOWN},
+		{1, WM_LBUTTONUP,   irr::EMIE_LMOUSE_LEFT_UP},
+		{0, WM_RBUTTONDOWN, irr::EMIE_RMOUSE_PRESSED_DOWN},
+		{1, WM_RBUTTONUP,   irr::EMIE_RMOUSE_LEFT_UP},
+		{0, WM_MBUTTONDOWN, irr::EMIE_MMOUSE_PRESSED_DOWN},
+		{1, WM_MBUTTONUP,   irr::EMIE_MMOUSE_LEFT_UP},
+		{2, WM_MOUSEMOVE,   irr::EMIE_MOUSE_MOVED},
+		{3, WM_MOUSEWHEEL,  irr::EMIE_MOUSE_WHEEL},
+		{-1, 0, 0}
+	};
+
+	// handle grouped events
+	messageMap * m = mouseMap;
+	while ( m->group >=0 && m->winMessage != message )
+		m += 1;
+
+	if ( m->group >= 0 )
+	{
+		if ( m->group == 0 )	// down
+		{
+			ClickCount++;
+			SetCapture(hWnd);
+		}
+		else
+		if ( m->group == 1 )	// up
+		{
+			ClickCount--;
+			if (ClickCount<1)
+			{
+				ClickCount=0;
+				ReleaseCapture();
+			}
+		}
+
+		event.EventType = irr::EET_MOUSE_INPUT_EVENT;
+		event.MouseInput.Event = (irr::EMOUSE_INPUT_EVENT) m->irrMessage;
+		event.MouseInput.X = (short)LOWORD(lParam);
+		event.MouseInput.Y = (short)HIWORD(lParam);
+		event.MouseInput.Shift = ((LOWORD(wParam) & MK_SHIFT) != 0);
+		event.MouseInput.Control = ((LOWORD(wParam) & MK_CONTROL) != 0);
+		// left and right mouse buttons
+		event.MouseInput.ButtonStates = wParam & ( MK_LBUTTON | MK_RBUTTON);
+		// middle and extra buttons
+		if (wParam & MK_MBUTTON)
+			event.MouseInput.ButtonStates |= irr::EMBSM_MIDDLE;
+#if(_WIN32_WINNT >= 0x0500)
+		if (wParam & MK_XBUTTON1)
+			event.MouseInput.ButtonStates |= irr::EMBSM_EXTRA1;
+		if (wParam & MK_XBUTTON2)
+			event.MouseInput.ButtonStates |= irr::EMBSM_EXTRA2;
+#endif
+		event.MouseInput.Wheel = 0.f;
+
+		// wheel
+		#ifndef WHEEL_DELTA
+		#define WHEEL_DELTA 120
+		#endif
+		if ( m->group == 3 )
+		{
+			POINT p; // fixed by jox
+			p.x = 0; p.y = 0;
+			ClientToScreen(hWnd, &p);
+			event.MouseInput.X -= p.x;
+			event.MouseInput.Y -= p.y;
+			event.MouseInput.Wheel = ((float)((short)HIWORD(wParam))) / (float)WHEEL_DELTA;
+		}
+
+		if (params.device)
+		{
+			params.device->postEventFromUser(event);
+
+			if ( event.MouseInput.Event >= irr::EMIE_LMOUSE_PRESSED_DOWN && event.MouseInput.Event <= irr::EMIE_MMOUSE_PRESSED_DOWN )
+			{
+				uint32_t clicks = params.device->checkSuccessiveClicks(event.MouseInput.X, event.MouseInput.Y, event.MouseInput.Event);
+				if ( clicks == 2 )
+				{
+					event.MouseInput.Event = (irr::EMOUSE_INPUT_EVENT)(irr::EMIE_LMOUSE_DOUBLE_CLICK + event.MouseInput.Event-irr::EMIE_LMOUSE_PRESSED_DOWN);
+					params.device->postEventFromUser(event);
+				}
+				else if ( clicks == 3 )
+				{
+					event.MouseInput.Event = (irr::EMOUSE_INPUT_EVENT)(irr::EMIE_LMOUSE_TRIPLE_CLICK + event.MouseInput.Event-irr::EMIE_LMOUSE_PRESSED_DOWN);
+					params.device->postEventFromUser(event);
+				}
+			}
+		}
+		return 0;
+	}
+
+	switch (message)
+	{
+	case WM_PAINT:
+		{
+			PAINTSTRUCT ps;
+			BeginPaint(hWnd, &ps);
+			EndPaint(hWnd, &ps);
+		}
+		return 0;
+
+	case WM_ERASEBKGND:
+		return 0;
+
+	case WM_SYSKEYDOWN:
+	case WM_SYSKEYUP:
+	case WM_KEYDOWN:
+	case WM_KEYUP:
+		{
+			BYTE allKeys[256];
+
+			event.EventType = irr::EET_KEY_INPUT_EVENT;
+			event.KeyInput.Key = (irr::EKEY_CODE)wParam;
+			event.KeyInput.PressedDown = (message==WM_KEYDOWN || message == WM_SYSKEYDOWN);
+
+			const UINT MY_MAPVK_VSC_TO_VK_EX = 3; // MAPVK_VSC_TO_VK_EX should be in SDK according to MSDN, but isn't in mine.
+			if ( event.KeyInput.Key == irr::KEY_SHIFT )
+			{
+				// this will fail on systems before windows NT/2000/XP, not sure _what_ will return there instead.
+				event.KeyInput.Key = (irr::EKEY_CODE)MapVirtualKey( ((lParam>>16) & 255), MY_MAPVK_VSC_TO_VK_EX );
+			}
+			if ( event.KeyInput.Key == irr::KEY_CONTROL )
+			{
+				event.KeyInput.Key = (irr::EKEY_CODE)MapVirtualKey( ((lParam>>16) & 255), MY_MAPVK_VSC_TO_VK_EX );
+				// some keyboards will just return LEFT for both - left and right keys. So also check extend bit.
+				if (lParam & 0x1000000)
+					event.KeyInput.Key = irr::KEY_RCONTROL;
+			}
+			if ( event.KeyInput.Key == irr::KEY_MENU )
+			{
+				event.KeyInput.Key = (irr::EKEY_CODE)MapVirtualKey( ((lParam>>16) & 255), MY_MAPVK_VSC_TO_VK_EX );
+				if (lParam & 0x1000000)
+					event.KeyInput.Key = irr::KEY_RMENU;
+			}
+
+			GetKeyboardState(allKeys);
+
+			event.KeyInput.Shift = ((allKeys[VK_SHIFT] & 0x80)!=0);
+			event.KeyInput.Control = ((allKeys[VK_CONTROL] & 0x80)!=0);
+
+			// Handle unicode and deadkeys in a way that works since Windows 95 and nt4.0
+			// Using ToUnicode instead would be shorter, but would to my knowledge not run on 95 and 98.
+			WORD keyChars[2];
+			UINT scanCode = HIWORD(lParam);
+			int conversionResult = ToAsciiEx(wParam,scanCode,allKeys,keyChars,0,params.KEYBOARD_INPUT_HKL);
+			if (conversionResult == 1)
+			{
+				WORD unicodeChar;
+				MultiByteToWideChar(
+						params.KEYBOARD_INPUT_CODEPAGE,
+						MB_PRECOMPOSED, // default
+						(LPCSTR)keyChars,
+						sizeof(keyChars),
+						(WCHAR*)&unicodeChar,
+						1 );
+				event.KeyInput.Char = unicodeChar;
+			}
+			else
+				event.KeyInput.Char = 0;
+
+			// allow composing characters like '@' with Alt Gr on non-US keyboards
+			if ((allKeys[VK_MENU] & 0x80) != 0)
+				event.KeyInput.Control = 0;
+
+			if (params.device)
+				params.device->postEventFromUser(event);
+
+			if (message == WM_SYSKEYDOWN || message == WM_SYSKEYUP)
+				return DefWindowProc(hWnd, message, wParam, lParam);
+			else
+				return 0;
+		}
+
+	case WM_SIZE:
+		{
+			// resize
+			if (params.device)
+				params.device->OnResized();
+		}
+		return 0;
+
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		return 0;
+
+	case WM_SYSCOMMAND:
+		// prevent screensaver or monitor powersave mode from starting
+		if ((wParam & 0xFFF0) == SC_SCREENSAVE ||
+			(wParam & 0xFFF0) == SC_MONITORPOWER ||
+			(wParam & 0xFFF0) == SC_KEYMENU
+			)
+			return 0;
+
+		break;
+
+	case WM_ACTIVATE:
+		// we need to take care for screen changes, e.g. Alt-Tab
+#if 0
+		if (params.device && dev->isFullscreen())
+		{
+			if ((wParam&0xFF)==WA_INACTIVE)
+			{
+				// If losing focus we minimize the app to show other one
+				ShowWindow(hWnd,SW_MINIMIZE);
+				// and switch back to default resolution
+				dev->switchToFullScreen(true);
+			}
+			else
+			{
+				// Otherwise we retore the fullscreen Irrlicht app
+				SetForegroundWindow(hWnd);
+				ShowWindow(hWnd, SW_RESTORE);
+				// and set the fullscreen resolution again
+				dev->switchToFullScreen();
+			}
+		}
+#endif
+		break;
+
+	case WM_USER:
+		event.EventType = irr::EET_USER_EVENT;
+		event.UserEvent.UserData1 = (int32_t)wParam;
+		event.UserEvent.UserData2 = (int32_t)lParam;
+		if (params.device)
+			params.device->postEventFromUser(event);
+		return 0;
+
+	case WM_SETCURSOR:
+		// because Windows forgot about that in the meantime
+		if (params.device)
+		{
+			auto cursorControl = params.device->getCursorControl();
+			cursorControl->setActiveIcon(cursorControl->getActiveIcon());
+			cursorControl->setVisible(cursorControl->isVisible());
+		}
+		break;
+
+	case WM_INPUTLANGCHANGE:
+		// get the new codepage used for keyboard input
+		params.KEYBOARD_INPUT_HKL = GetKeyboardLayout(0);
+		params.KEYBOARD_INPUT_CODEPAGE = LocaleIdToCodepage( LOWORD(params.KEYBOARD_INPUT_HKL) );
+		return 0;
+	}
+	return DefWindowProc(hWnd, message, wParam, lParam);
+}
+
+std::mutex CIrrDeviceWin32::windowProcMapMutex;
+core::map<HWND, CIrrDeviceWin32::WindowProcParams> CIrrDeviceWin32::windowProcMap;
 
 
 } // end namespace

@@ -84,12 +84,6 @@ namespace irr
             //! Remove all messages pending in the system message loop
             virtual void clearSystemMessages();
 
-            //! Get the device type
-            virtual E_DEVICE_TYPE getType() const
-            {
-                    return EIDT_WIN32;
-            }
-
             //! Compares to the last call of this function to return double and triple clicks.
             //! \return Returns only 1,2 or 3. A 4th click will start with 1 again.
             virtual uint32_t checkSuccessiveClicks(int32_t mouseX, int32_t mouseY, EMOUSE_INPUT_EVENT inputEvent )
@@ -388,13 +382,21 @@ namespace irr
 
             HWND HWnd;
 
-            bool ChangedToFullScreen;
             bool Resized;
             bool ExternalWindow;
             CCursorControl* Win32CursorControl;
-            DEVMODE DesktopMode;
 
             SJoystickWin32Control* JoyControl;
+
+            static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+            struct WindowProcParams
+            {
+                CIrrDeviceWin32* device = nullptr;
+                HKL KEYBOARD_INPUT_HKL = 0;
+                unsigned int KEYBOARD_INPUT_CODEPAGE = 1252;
+            };
+            static std::mutex windowProcMapMutex;
+            static core::map<HWND,WindowProcParams> windowProcMap;
 	};
 
 } // end namespace irr

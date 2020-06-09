@@ -89,35 +89,6 @@
 //! Everything in the Irrlicht Engine can be found in this namespace.
 namespace irr
 {
-	//! Creates an Irrlicht device. The Irrlicht device is the root object for using the engine.
-	/** If you need more parameters to be passed to the creation of the Irrlicht Engine device,
-	use the createDeviceEx() function.
-	\param deviceType: Type of the device. This can currently be video::EDT_NULL,
-	video::EDT_VULKAN, and video::EDT_OPENGL.
-	\param windowSize: Size of the window or the video mode in fullscreen mode.
-	\param bits: Bits per pixel in fullscreen mode. Ignored if windowed mode.
-	\param fullscreen: Should be set to true if the device should run in fullscreen. Otherwise
-		the device runs in windowed mode.
-	\param stencilbuffer: Specifies if the stencil buffer should be enabled. Set this to true,
-	if you want the engine be able to draw stencil buffer shadows. Note that not all
-	devices are able to use the stencil buffer. If they don't no shadows will be drawn.
-	\param vsync: Specifies vertical syncronisation: If set to true, the driver will wait
-	for the vertical retrace period, otherwise not.
-	\param receiver: A user created event receiver.
-	\return Returns pointer to the created IrrlichtDevice or null if the
-	device could not be created.
-	*/
-	core::smart_refctd_ptr<IrrlichtDevice> createDevice(
-		video::E_DRIVER_TYPE deviceType = video::EDT_OPENGL,
-		// parantheses are necessary for some compilers
-		const core::dimension2d<uint32_t>& windowSize = (core::dimension2d<uint32_t>(640,480)),
-		uint32_t bits = 16,
-		bool fullscreen = false,
-		bool stencilbuffer = false,
-		bool vsync = false,
-		IEventReceiver* receiver = 0);
-
-
 	//! Creates an Irrlicht device with the option to specify advanced parameters.
 	/** Usually you should use createDevice() for creating an Irrlicht Engine device.
 	Use this function only if you wish to specify advanced parameters like a window

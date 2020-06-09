@@ -9,7 +9,6 @@
 #include "dimension2d.h"
 #include "IVideoDriver.h"
 #include "EDriverTypes.h"
-#include "EDeviceTypes.h"
 #include "IEventReceiver.h"
 #include "ICursorControl.h"
 #include "ITimer.h"
@@ -147,10 +146,6 @@ namespace irr
 		/** \return True if window is minimized. */
 		virtual bool isWindowMinimized() const = 0;
 
-		//! Checks if the Irrlicht window is running in fullscreen mode
-		/** \return True if window is fullscreen. */
-		virtual bool isFullscreen() const = 0;
-
 		//! Get the current color format of the window
 		/** \return Color format of the window. */
 		virtual asset::E_FORMAT getColorFormat() const = 0;
@@ -226,11 +221,6 @@ namespace irr
 		The function is still somewhat experimental, as the kind of messages we clear is based on just a few use-cases.
 		If you think further messages should be cleared, or some messages should not be cleared here, then please tell us. */
 		virtual void clearSystemMessages() = 0;
-
-		//! Get the type of the device.
-		/** This allows the user to check which windowing system is currently being
-		used. */
-		virtual E_DEVICE_TYPE getType() const = 0;
 
 		//! Check if a driver type is supported by the engine.
 		/** Even if true is returned the driver may not be available

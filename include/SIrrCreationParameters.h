@@ -6,7 +6,6 @@
 #define __I_IRRLICHT_CREATION_PARAMETERS_H_INCLUDED__
 
 #include "EDriverTypes.h"
-#include "EDeviceTypes.h"
 #include "dimension2d.h"
 #include "ILogger.h"
 #include "irr/builtin/common.h"
@@ -19,14 +18,19 @@ namespace irr
 	/** This structure is used in the createDeviceEx() function. */
 	struct SIrrlichtCreationParameters
 	{
+		enum E_SWAPCHAIN_COMPOSTING
+		{
+			ESC_WINDOWED,
+			ESC_FULLSCREEN,
+			ESC_VIRTUAL
+		};
 		//! Constructs a SIrrlichtCreationParameters structure with default values.
 		SIrrlichtCreationParameters() :
-			DeviceType(EIDT_BEST),
 			DriverType(video::EDT_OPENGL),
 			WindowSize(core::dimension2d<uint32_t>(800, 600)),
 			Bits(16),
 			ZBufferBits(16),
-			Fullscreen(false),
+			SwapchainComposting(ESC_WINDOWED),
 			Stencilbuffer(false),
 			Vsync(false),
 			WithAlphaChannel(false),
@@ -53,12 +57,11 @@ namespace irr
 
 		SIrrlichtCreationParameters& operator=(const SIrrlichtCreationParameters& other)
 		{
-			DeviceType = other.DeviceType;
 			DriverType = other.DriverType;
 			WindowSize = other.WindowSize;
 			Bits = other.Bits;
 			ZBufferBits = other.ZBufferBits;
-			Fullscreen = other.Fullscreen;
+			SwapchainComposting = other.SwapchainComposting;
 			Stencilbuffer = other.Stencilbuffer;
 			Vsync = other.Vsync;
 			WithAlphaChannel = other.WithAlphaChannel;
@@ -75,19 +78,6 @@ namespace irr
 			return *this;
 		}
 
-		//! Type of the device.
-		/** This setting decides the windowing system used by the device, most device types are native
-		to a specific operating system and so may not be available.
-		EIDT_WIN32 is only available on Windows desktops,
-		EIDT_WINCE is only available on Windows mobile devices,
-		EIDT_COCOA is only available on Mac OSX,
-		EIDT_X11 is available on Linux, Solaris, BSD and other operating systems which use X11,
-		EIDT_SDL is available on most systems if compiled in,
-		EIDT_CONSOLE is usually available but can only render to text,
-		EIDT_BEST will select the best available device for your operating system.
-		Default: EIDT_BEST. */
-		E_DEVICE_TYPE DeviceType;
-
 		//! Type of video driver used to render graphics.
 		/** This can currently be video::EDT_NULL, video::EDT_VULKAN, and video::EDT_OPENGL.
 		Default: OpenGL. */
@@ -102,9 +92,9 @@ namespace irr
 		//! Minimum Bits per pixel of the depth buffer. Default: 16.
 		uint8_t ZBufferBits;
 
-		//! Should be set to true if the device should run in fullscreen.
-		/** Otherwise the device runs in windowed mode. Default: false. */
-		bool Fullscreen;
+		//! Whether to create a full-screen swapchain, windowed one according to OS window manager or virtual (off-screen).
+		/** If you choose virtual then nothing will be visible but you'll still be able to use the GPU. Default: ESC_WINDOWED. */
+		E_SWAPCHAIN_COMPOSTING SwapchainComposting;
 
 		//! Specifies if the stencil buffer should be enabled.
 		/** Set this to true, if you want the engine be able to draw

@@ -225,7 +225,6 @@ set(IRRLICHT_SRCS_COMMON
 # Junk to refactor
 	${IRR_ROOT_PATH}/source/Irrlicht/IrrlichtDevice.cpp
 	${IRR_ROOT_PATH}/source/Irrlicht/CIrrDeviceLinux.cpp
-	${IRR_ROOT_PATH}/source/Irrlicht/CIrrDeviceConsole.cpp
 	${IRR_ROOT_PATH}/source/Irrlicht/CIrrDeviceStub.cpp
 	${IRR_ROOT_PATH}/source/Irrlicht/CIrrDeviceWin32.cpp
 	${IRR_ROOT_PATH}/source/Irrlicht/Irrlicht.cpp
